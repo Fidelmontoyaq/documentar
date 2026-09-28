@@ -1,0 +1,1 @@
+export { DocumentEditorApp } from './DocumentEditorApp';

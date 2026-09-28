@@ -1,0 +1,92 @@
+/*
+  Solo va aquí lo que Tailwind no puede expresar con clases de utilidad:
+  1) La carga de las tipografías de Google Fonts del catálogo.
+  2) El estilo de la barra de scroll (no existe utilidad nativa sin plugin).
+  3) La clase "fantasma" que exige SortableJS al arrastrar (debe ser una sola clase).
+  4) Los títulos (H1/H2/H3) que se insertan dentro del documento, para que
+     luzcan como los títulos de un documento Word real, sin cuadrícula ni sombra.
+  5) Ocultar, también al imprimir con Ctrl+P, el texto de ejemplo ("placeholder")
+     de los pies de foto y cuadros de texto vacíos, para que nunca se imprima solo.
+  6) Mostrar el marco y los controladores de un elemento flotante (imagen, pie de
+     foto o cuadro de texto) solo cuando está seleccionado.
+*/
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;500;700&family=Open+Sans:wght@400;600&family=Roboto:wght@400;500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&family=Tinos:ital,wght@0,400;0,700;1,400&family=Arimo:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&display=swap');
+
+.doc-editor ::-webkit-scrollbar { width: 8px; height: 8px; }
+.doc-editor ::-webkit-scrollbar-track { background: #1e293b; }
+.doc-editor ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+.doc-editor ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+.sortable-ghost { opacity: 0.4; border: 2px dashed #3b82f6 !important; }
+
+.page-content h1, .page-content h2, .page-content h3 {
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+  color: #1f4e79;
+  font-weight: 600;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+.page-content h1 { font-size: 28px; margin: 22px 0 10px; }
+.page-content h2 { font-size: 22px; margin: 18px 0 8px; }
+.page-content h3 { font-size: 18px; margin: 14px 0 6px; }
+.page-content h4, .page-content h5, .page-content h6 {
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+  color: #1f4e79; font-weight: 600; border: none; box-shadow: none; background: transparent;
+}
+.page-content h4 { font-size: 16px; margin: 12px 0 5px; }
+.page-content h5 { font-size: 14px; margin: 10px 0 4px; }
+.page-content h6 { font-size: 13px; margin: 8px 0 4px; }
+.page-content blockquote {
+  border-left: 3px solid #94a3b8; margin: 10px 0; padding: 4px 14px; color: #475569; font-style: italic;
+}
+.page-content table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.page-content table td, .page-content table th { border: 1px solid #cbd5e1; padding: 6px 8px; }
+
+@media print {
+  .has-placeholder::before { content: none !important; }
+}
+body.exporting .has-placeholder::before { content: none !important; }
+
+.page-content.has-placeholder:empty::before { content: attr(data-placeholder); color: #94a3b8; pointer-events: none; }
+
+.floating-box { border: 2px solid transparent; cursor: default; }
+.floating-box[data-type="image"] { cursor: move; }
+.floating-box.box-selected { border-color: #7c3aed; }
+.floating-box .floating-box-handle,
+.floating-box .floating-box-ctrl,
+.floating-box .floating-box-rotate { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.floating-box.box-selected .floating-box-handle,
+.floating-box.box-selected .floating-box-ctrl,
+.floating-box.box-selected .floating-box-rotate { opacity: 1; pointer-events: auto; }
+
+.floating-box-ctrl { position: absolute; width: 11px; height: 11px; background: #fff; border: 2px solid #7c3aed; border-radius: 9999px; z-index: 21; }
+.floating-box-ctrl.ctrl-nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.floating-box-ctrl.ctrl-ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.floating-box-ctrl.ctrl-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.floating-box-ctrl.ctrl-se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+.floating-box-ctrl.ctrl-n { top: -6px; left: 50%; width: 24px; height: 9px; margin-left: -12px; border-radius: 6px; cursor: ns-resize; }
+.floating-box-ctrl.ctrl-s { bottom: -6px; left: 50%; width: 24px; height: 9px; margin-left: -12px; border-radius: 6px; cursor: ns-resize; }
+.floating-box-ctrl.ctrl-e { right: -6px; top: 50%; width: 9px; height: 24px; margin-top: -12px; border-radius: 6px; cursor: ew-resize; }
+.floating-box-ctrl.ctrl-w { left: -6px; top: 50%; width: 9px; height: 24px; margin-top: -12px; border-radius: 6px; cursor: ew-resize; }
+
+.floating-box-rotate { position: absolute; top: -30px; left: 50%; margin-left: -9px; width: 18px; height: 18px; border-radius: 9999px; background: #7c3aed; color: #fff; display: flex; align-items: center; justify-content: center; cursor: grab; z-index: 21; font-size: 11px; line-height: 1; }
+.floating-box-rotate::before { content: ''; position: absolute; bottom: -13px; left: 50%; width: 1px; height: 13px; background: #7c3aed; }
+
+.element-toolbar .et-btn { min-width: 30px; height: 30px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 6px; color: #cbd5e1; font-size: 12px; }
+.element-toolbar .et-btn:disabled { opacity: .3; pointer-events: none; }
+.element-toolbar .et-btn:hover { background: #334155; color: #fff; }
+.element-toolbar .et-sep { width: 1px; align-self: stretch; background: #475569; margin: 0 2px; }
+
+
+/* Hoja donde está el usuario (destino de imágenes/textos nuevos) */
+.a4-page.page-active { outline: 2px solid rgba(96, 165, 250, 0.45); outline-offset: 4px; }
+
+/* Guía de márgenes: solo existe mientras se arrastra o redimensiona un elemento */
+.margin-guide { position: absolute; pointer-events: none; z-index: 5; border: 1.5px dashed #3b82f6; background: rgba(59, 130, 246, 0.04); transition: border-color .1s, background .1s; }
+.margin-guide.guide-out { border-color: #ef4444; background: rgba(239, 68, 68, 0.06); }
+
+/* Barra de zoom: control deslizante con bolita */
+.zoom-range { -webkit-appearance: none; appearance: none; width: 140px; height: 4px; border-radius: 9999px; background: #475569; outline: none; cursor: pointer; }
+.zoom-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab; }
+.zoom-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; cursor: grab; }
