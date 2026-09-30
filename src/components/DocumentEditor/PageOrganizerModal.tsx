@@ -31,6 +31,7 @@ export function PageOrganizerModal({ open, onClose, engine }: PageOrganizerModal
   const [selected, setSelected] = useState<string[]>([]);
   const [version, setVersion] = useState(0);
   const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const [draggingIds, setDraggingIds] = useState<string[]>([]);
   const lastClicked = useRef<string | null>(null);
   const dragging = useRef<string[]>([]);
 
@@ -102,17 +103,18 @@ export function PageOrganizerModal({ open, onClose, engine }: PageOrganizerModal
     const moving = selected.includes(id) ? group : [id];
     if (!selected.includes(id)) setSelected([id]);
     dragging.current = moving;
+    setDraggingIds(moving);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', moving.join(','));
-    if (moving.length > 1) {
-      const badge = document.createElement('div');
-      badge.textContent = `${moving.length} páginas`;
-      badge.style.cssText =
-        'position:fixed;top:-100px;padding:8px 14px;background:#2563eb;color:#fff;border-radius:8px;font:600 13px sans-serif;';
-      document.body.appendChild(badge);
-      e.dataTransfer.setDragImage(badge, 20, 20);
-      setTimeout(() => badge.remove(), 0);
-    }
+    // Vista previa propia siempre (también con una sola hoja): así se ve con
+    // claridad que algo se está arrastrando, en vez del fantasma por defecto.
+    const badge = document.createElement('div');
+    badge.textContent = moving.length > 1 ? `${moving.length} páginas` : 'Página';
+    badge.style.cssText =
+      'position:fixed;top:-200px;padding:8px 14px;background:#2563eb;color:#fff;border-radius:8px;font:600 13px sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);';
+    document.body.appendChild(badge);
+    e.dataTransfer.setDragImage(badge, 20, 20);
+    setTimeout(() => badge.remove(), 0);
   };
 
   const handleDragOverCard = (e: DragEvent, id: string) => {
@@ -139,6 +141,7 @@ export function PageOrganizerModal({ open, onClose, engine }: PageOrganizerModal
 
   const handleDragEnd = () => {
     dragging.current = [];
+    setDraggingIds([]);
     setDropTarget(null);
   };
 
@@ -212,19 +215,22 @@ export function PageOrganizerModal({ open, onClose, engine }: PageOrganizerModal
                     engine.scrollToPage(id);
                     onClose();
                   }}
-                  className="relative w-[170px] shrink-0 select-none cursor-grab active:cursor-grabbing"
+                  className={`relative w-[170px] shrink-0 select-none cursor-grab active:cursor-grabbing transition-all duration-150 ${
+                    draggingIds.includes(id) ? 'thumb-dragging' : ''
+                  }`}
                 >
-                  {showBefore && <div className="absolute -left-3.5 top-0 bottom-6 w-1 rounded bg-blue-500" />}
-                  {showAfter && <div className="absolute -right-3.5 top-0 bottom-6 w-1 rounded bg-blue-500" />}
+                  {showBefore && <div className="absolute -left-3.5 top-0 bottom-6 w-1 rounded bg-blue-500 thumb-drop-line" />}
+                  {showAfter && <div className="absolute -right-3.5 top-0 bottom-6 w-1 rounded bg-blue-500 thumb-drop-line" />}
                   <div
-                    className={`rounded-lg overflow-hidden border-2 shadow transition ${
+                    className={`rounded-lg overflow-hidden border-2 shadow transition-all duration-150 ${
                       isSel ? 'border-blue-500 ring-4 ring-blue-500/40' : 'border-slate-700 hover:border-slate-500'
                     }`}
                   >
                     <Thumb engine={engine} id={id} version={version} />
                   </div>
                   <span
-                    className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center border ${
+                    key={isSel ? `${id}-on` : `${id}-off`}
+                    className={`check-pop absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center border ${
                       isSel ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900/80 border-slate-500 text-slate-300'
                     }`}
                   >

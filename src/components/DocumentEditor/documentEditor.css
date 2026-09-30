@@ -90,3 +90,10 @@ body.exporting .has-placeholder::before { content: none !important; }
 .zoom-range { -webkit-appearance: none; appearance: none; width: 140px; height: 4px; border-radius: 9999px; background: #475569; outline: none; cursor: pointer; }
 .zoom-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab; }
 .zoom-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; cursor: grab; }
+
+/* Organizador de páginas: animación de arrastre y del check al (des)marcar */
+.thumb-dragging { opacity: .35; transform: scale(.94); }
+.thumb-drop-line { animation: dropLinePulse .8s ease-in-out infinite; }
+@keyframes dropLinePulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.check-pop { animation: checkPop 160ms ease-out; }
+@keyframes checkPop { 0% { transform: scale(.5); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }

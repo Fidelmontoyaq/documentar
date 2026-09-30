@@ -11,7 +11,8 @@ import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '..
 import './documentEditor.css';
 
 const DEFAULT_FONT = "'Inter', sans-serif";
-const DEFAULT_MARGIN: MarginSelectValue = 'p-[25mm_20mm]';
+const DEFAULT_MARGIN: MarginSelectValue = 'custom';
+const DEFAULT_MARGIN_CM = 2;
 
 /** Editor y Ensamblador de Documentos Avanzado. */
 export function DocumentEditorApp() {
@@ -38,9 +39,10 @@ export function DocumentEditorApp() {
   const [imageMode, setImageMode] = useState<ImagesPerPageMode>('1');
   const [fontValue, setFontValue] = useState(DEFAULT_FONT);
   const [marginValue, setMarginValue] = useState<MarginSelectValue>(DEFAULT_MARGIN);
-  const [customMarginCm, setCustomMarginCm] = useState(2.5);
-  const [gapDialog, setGapDialog] = useState<{ gap: number; pageCount: number; docCount: number } | null>(null);
+  const [customMarginCm, setCustomMarginCm] = useState(DEFAULT_MARGIN_CM);
+  const [gapDialog, setGapDialog] = useState<{ pageCount: number; docCount: number } | null>(null);
   const [gapScope, setGapScope] = useState<'page' | 'document'>('document');
+  const [gapValue, setGapValue] = useState(8);
 
   useEffect(() => {
     if (!errorMessage) return;
@@ -76,7 +78,17 @@ export function DocumentEditorApp() {
     setCustomMarginCm(Number.isNaN(cm) ? 0 : cm);
   };
 
-  return (
+  const openGapDialog = (initialValue: number) => {
+    if (!engine) return;
+    setGapValue(initialValue);
+    setGapScope('document');
+    setGapDialog({
+      pageCount: engine.countLinkedCaptions('page'),
+      docCount: engine.countLinkedCaptions('document'),
+    });
+  };
+
+    return (
     <div className="doc-editor h-screen flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
       <div className="flex flex-1 overflow-hidden">
         <IconRail
@@ -118,6 +130,7 @@ export function DocumentEditorApp() {
           onInsertPageNumber={() => engine?.insertPageNumberField()}
           pageCount={pageCount}
           onOpenOrganizer={() => setOrganizerOpen(true)}
+          onOpenCaptionGapAll={() => openGapDialog(gapValue)}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
@@ -140,15 +153,7 @@ export function DocumentEditorApp() {
             onSetFill={(color) => engine?.etSetFill(color)}
             onCaptionGap={(px) => engine?.setCaptionGap(px)}
             onCaptionReset={() => engine?.resetCaptionPlacement()}
-            onCaptionGapAll={() => {
-              if (!engine || toolbarState?.captionGap == null) return;
-              setGapScope('document');
-              setGapDialog({
-                gap: toolbarState.captionGap,
-                pageCount: engine.countLinkedCaptions('page'),
-                docCount: engine.countLinkedCaptions('document'),
-              });
-            }}
+            onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
           <EditorCanvas
             scrollContainerRef={scrollContainerRef}
@@ -162,13 +167,26 @@ export function DocumentEditorApp() {
       <PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} />
 
       {gapDialog && (
-        <div className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center print:hidden">
+        <div
+          data-keep-selection
+          className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center print:hidden"
+        >
           <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 w-[380px] max-w-[92vw]">
             <h3 className="text-white font-bold text-base mb-1">¿Estás seguro?</h3>
-            <p className="text-sm text-slate-300 mb-4">
-              Vas a cambiar la separación entre imagen y pie de foto a{' '}
-              <b className="text-white">{gapDialog.gap}px</b> en varias imágenes a la vez.
+            <p className="text-sm text-slate-300 mb-3">
+              Vas a cambiar la separación entre cada imagen y su pie de foto en varias imágenes a la vez.
             </p>
+            <label className="flex items-center gap-2 text-sm text-slate-200 mb-4">
+              Nueva separación:
+              <input
+                type="number"
+                autoFocus
+                value={gapValue}
+                onChange={(e) => setGapValue(Number(e.target.value) || 0)}
+                className="w-20 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 py-1.5 px-2 outline-none focus:border-blue-500"
+              />
+              <span className="text-slate-400">px</span>
+            </label>
             <div className="space-y-2 mb-4">
               {(
                 [
@@ -190,7 +208,7 @@ export function DocumentEditorApp() {
               <button
                 type="button"
                 onClick={() => {
-                  engine?.applyCaptionGapToAll(gapDialog.gap, gapScope);
+                  engine?.applyCaptionGapToAll(gapValue, gapScope);
                   setGapDialog(null);
                 }}
                 className="px-4 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium"

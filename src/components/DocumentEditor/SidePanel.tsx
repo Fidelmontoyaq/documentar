@@ -21,6 +21,7 @@ import {
   Hash,
   Layers,
   LayoutGrid,
+  Rows,
 } from 'lucide-react';
 import { groupedFontOptions } from '../../engine/fontCatalog';
 import type { ImagesPerPageMode, MarginSelectValue } from '../../types/documentEditor';
@@ -48,6 +49,7 @@ interface SidePanelProps {
   onInsertPageNumber: () => void;
   pageCount: number;
   onOpenOrganizer: () => void;
+  onOpenCaptionGapAll: () => void;
 }
 
 export function SidePanel({
@@ -73,6 +75,7 @@ export function SidePanel({
   onInsertPageNumber,
   pageCount,
   onOpenOrganizer,
+  onOpenCaptionGapAll,
 }: SidePanelProps) {
   const { recent, rest } = groupedFontOptions(recentFonts);
 
@@ -231,8 +234,12 @@ export function SidePanel({
               <option value="p-[12mm_10mm]">Estrecho / Compacto (1.2 cm)</option>
               <option value="p-[35mm_30mm]">Ancho (3.5 cm)</option>
               <option value="p-[5mm]">Mínimo / Sin Margen (0.5 cm)</option>
-              <option value="custom">Personalizado…</option>
+              <option value="custom">Personalizado… (2 cm por defecto)</option>
             </select>
+            <p className="text-[10px] text-slate-500 mt-1">
+              Solo afecta imágenes, texto y hojas nuevas. Las hojas importadas desde un PDF conservan su propio
+              margen (o ninguno) y no cambian.
+            </p>
             {marginValue === 'custom' && (
               <div className="mt-2 flex items-center gap-2">
                 <input
@@ -317,6 +324,13 @@ export function SidePanel({
             className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition"
           >
             <Hash className="w-3.5 h-3.5 text-amber-400" /> Insertar número de página
+          </button>
+          <button
+            type="button"
+            onClick={onOpenCaptionGapAll}
+            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Rows className="w-3.5 h-3.5 text-blue-400" /> Separación imagen–pie de foto (todas)
           </button>
         </div>
 
