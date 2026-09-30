@@ -24,6 +24,9 @@ export type MarginSelectValue = MarginPresetClass | 'custom';
 /** Cuántas imágenes se colocan por hoja durante una carga masiva. */
 export type ImagesPerPageMode = 'current' | '1' | '2';
 
+/** Orientación de una hoja. */
+export type PageOrientation = 'portrait' | 'landscape';
+
 /** Formas de acomodar varias imágenes dentro de una hoja. */
 export type ArrangeLayoutId =
   | 'cols'
