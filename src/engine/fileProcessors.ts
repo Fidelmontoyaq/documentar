@@ -16,7 +16,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
  */
 export async function processPDFFile(
   file: File,
-  onPageRendered: (pageHTML: string) => void
+  onPageRendered: (pageHTML: string, orientation: 'portrait' | 'landscape') => void
 ): Promise<void> {
   const arrayBuffer = await file.arrayBuffer();
   const typedArray = new Uint8Array(arrayBuffer);
@@ -39,7 +39,10 @@ export async function processPDFFile(
     // evita que se distorsione o se recorte si la proporción del PDF
     // original no fuera exactamente A4).
     const imgHTML = `<img src="${imgData}" class="block w-full h-full" style="object-fit:contain;" draggable="false" />`;
-    onPageRendered(imgHTML);
+    // Si la página del PDF es más ancha que alta, la hoja del documento se
+    // crea horizontal para que no queden franjas en blanco a los costados.
+    const orientation = viewport.width > viewport.height ? 'landscape' : 'portrait';
+    onPageRendered(imgHTML, orientation);
   }
 }
 

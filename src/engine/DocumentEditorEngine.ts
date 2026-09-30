@@ -13,6 +13,7 @@ import type {
   FloatingBoxType,
   ImagesPerPageMode,
   MarginPresetClass,
+  PageOrientation,
   ToolbarState,
   ToolbarTargetKind,
 } from '../types/documentEditor';
@@ -28,7 +29,20 @@ const MARGIN_CLASSES: MarginPresetClass[] = [
 ];
 
 const PAGE_BASE_CLASSES =
-  'a4-page w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border transition-all duration-200 print:shadow-none print:w-full print:h-full break-after-page group';
+  'a4-page bg-white text-slate-800 shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border transition-all duration-200 print:shadow-none print:w-full print:h-full break-after-page group';
+
+const ORIENTATION_SIZE_CLASSES: Record<PageOrientation, string> = {
+  portrait: 'w-[210mm] min-h-[297mm]',
+  landscape: 'w-[297mm] min-h-[210mm]',
+};
+// mm reales por orientación (los usa también la exportación a PDF).
+const PAGE_MM: Record<PageOrientation, { w: number; h: number }> = {
+  portrait: { w: 210, h: 297 },
+  landscape: { w: 297, h: 210 },
+};
+// Relación de aspecto (ancho/alto) típica de una hoja A4 apaisada, con margen de tolerancia.
+const LANDSCAPE_AR_MIN = 1.12;
+const LANDSCAPE_AR_MAX = 1.9;
 
 const CLIPBOARD_MARKER = '\u200b[DocuCraft-elemento]';
 const IMAGE_SELECTOR = ':scope > .floating-box[data-type="image"]';
@@ -49,7 +63,7 @@ export class DocumentEditorEngine {
   private floatingBoxCounter = 0;
   private activePage: HTMLElement | null = null;
   private sortableInstance: Sortable | null = null;
-  private currentMargin: CurrentMargin = { type: 'class', value: 'p-[25mm_20mm]' };
+  private currentMargin: CurrentMargin = { type: 'custom', value: 2 };
   private currentFont = "'Inter', sans-serif";
   private savedSelectionRange: Range | null = null;
 
@@ -348,9 +362,14 @@ export class DocumentEditorEngine {
     this.listeners.onFontUsed?.(fontFamily);
   }
 
+  /** Hojas donde se puede tocar el margen: nunca las páginas provenientes de un PDF importado. */
+  private editableMarginPages(): HTMLElement[] {
+    return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page:not([data-pdf-page="true"])'));
+  }
+
   changeGlobalMargin(marginClass: MarginPresetClass) {
     this.currentMargin = { type: 'class', value: marginClass };
-    this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((page) => {
+    this.editableMarginPages().forEach((page) => {
       page.classList.remove(...MARGIN_CLASSES);
       page.style.padding = '';
       page.classList.add(marginClass);
@@ -360,7 +379,7 @@ export class DocumentEditorEngine {
   applyCustomMargin(cm: number) {
     const safeCm = Number.isNaN(cm) || cm < 0 ? 0 : cm;
     this.currentMargin = { type: 'custom', value: safeCm };
-    this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((page) => {
+    this.editableMarginPages().forEach((page) => {
       page.classList.remove(...MARGIN_CLASSES);
       page.style.padding = `${safeCm}cm`;
     });
@@ -368,8 +387,9 @@ export class DocumentEditorEngine {
 
   // ===================== GESTIÓN DE PÁGINAS =====================
 
-  private buildPageHTML(pageId: string, contentHTML: string, isPdfPage: boolean): string {
+  private buildPageHTML(pageId: string, contentHTML: string, isPdfPage: boolean, orientation: PageOrientation = 'portrait'): string {
     const marginClass = isPdfPage ? 'p-0' : this.currentMargin.type === 'class' ? this.currentMargin.value : '';
+    const sizeClass = ORIENTATION_SIZE_CLASSES[orientation];
     const marginInlineStyle =
       !isPdfPage && this.currentMargin.type === 'custom' ? `padding:${this.currentMargin.value}cm;` : '';
 
@@ -381,10 +401,11 @@ export class DocumentEditorEngine {
       : `<div class="page-footer has-placeholder min-h-[1.4rem] mt-4 outline-none focus:bg-slate-100/60 text-slate-800 text-xs text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400" data-placeholder="Pie de página (opcional)" contenteditable="true" spellcheck="false"></div>`;
 
     return `
-      <div class="${PAGE_BASE_CLASSES} ${marginClass}" id="${pageId}" data-page-id="${pageId}" ${isPdfPage ? 'data-pdf-page="true"' : ''} style="font-family: ${this.currentFont}; ${marginInlineStyle}">
+      <div class="${PAGE_BASE_CLASSES} ${sizeClass} ${marginClass}" id="${pageId}" data-page-id="${pageId}" data-orientation="${orientation}" ${isPdfPage ? 'data-pdf-page="true"' : ''} style="font-family: ${this.currentFont}; ${marginInlineStyle}">
         <div class="page-toolbar-right absolute -right-12 top-0 flex flex-col gap-2 print:hidden bg-slate-800 p-1.5 rounded-lg border border-slate-700 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30" data-page-toolbar>
           <button type="button" data-action="move-up" title="Mover Arriba" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-blue-400 transition">&#8593;</button>
           <button type="button" data-action="move-down" title="Mover Abajo" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-blue-400 transition">&#8595;</button>
+          <button type="button" data-action="orientation" title="Girar hoja (vertical / horizontal)" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-amber-400 transition">&#8635;</button>
           <button type="button" data-action="duplicate" title="Duplicar Página" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-emerald-400 transition">&#10697;</button>
           <button type="button" data-action="delete" title="Eliminar Página" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-rose-400 transition">&#10005;</button>
         </div>
@@ -402,6 +423,7 @@ export class DocumentEditorEngine {
         switch (btn.dataset.action) {
           case 'move-up': this.movePageUp(id); break;
           case 'move-down': this.movePageDown(id); break;
+          case 'orientation': this.togglePageOrientation(id); break;
           case 'duplicate': this.duplicatePage(id); break;
           case 'delete': this.deletePage(id); break;
         }
@@ -412,11 +434,11 @@ export class DocumentEditorEngine {
   addNewPage(
     contentHTML = '',
     isPdfPage = false,
-    opts: { after?: HTMLElement | null; scroll?: boolean; activate?: boolean } = {}
+    opts: { after?: HTMLElement | null; scroll?: boolean; activate?: boolean; orientation?: PageOrientation } = {}
   ): HTMLElement {
     this.pageCounter++;
     const pageId = `page-${Date.now()}-${this.pageCounter}`;
-    const html = this.buildPageHTML(pageId, contentHTML, isPdfPage);
+    const html = this.buildPageHTML(pageId, contentHTML, isPdfPage, opts.orientation ?? 'portrait');
     if (opts.after) opts.after.insertAdjacentHTML('afterend', html);
     else this.pagesWrapper.insertAdjacentHTML('beforeend', html);
     const newPageEl = document.getElementById(pageId) as HTMLElement;
@@ -492,6 +514,28 @@ export class DocumentEditorEngine {
   getPageCount(): number {
     return this.pagesWrapper.querySelectorAll('.a4-page').length;
   }
+
+  getPageOrientation(pageId: string): PageOrientation {
+    const el = document.getElementById(pageId);
+    return el?.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
+  }
+
+  setPageOrientation(pageId: string, orientation: PageOrientation) {
+    const page = document.getElementById(pageId);
+    if (!page) return;
+    page.classList.remove(...Object.values(ORIENTATION_SIZE_CLASSES).flatMap((c) => c.split(' ')));
+    page.classList.add(...ORIENTATION_SIZE_CLASSES[orientation].split(' '));
+    page.dataset.orientation = orientation;
+    // Reacomodamos las imágenes existentes al nuevo tamaño de hoja.
+    requestAnimationFrame(() => this.arrangeImagesOn(page, 'grid'));
+    this.commitNow();
+  }
+
+  togglePageOrientation(pageId: string) {
+    const current = this.getPageOrientation(pageId);
+    this.setPageOrientation(pageId, current === 'portrait' ? 'landscape' : 'portrait');
+  }
+
 
   // ===================== API PARA EL ORGANIZADOR DE PÁGINAS =====================
 
@@ -582,7 +626,7 @@ export class DocumentEditorEngine {
       const ext = fileExtension(file.name);
       try {
         if (ext === 'pdf') {
-          await processPDFFile(file, (pageHTML) => this.addNewPage(pageHTML, true));
+          await processPDFFile(file, (pageHTML, orientation) => this.addNewPage(pageHTML, true, { orientation }));
         } else if (ext === 'docx') {
           this.addNewPage(await processDocxFile(file));
         }
@@ -606,19 +650,27 @@ export class DocumentEditorEngine {
             }
             this.arrangeImagesOn(page, 'flex');
           }
+        } else if (imageMode === '1') {
+          // Una hoja nueva por imagen: si la imagen es horizontal y se
+          // aproxima a la proporción de una A4 apaisada, la hoja se crea
+          // horizontal para aprovecharla a página completa.
+          for (const src of dataUrls) {
+            const orientation = await this.guessImageOrientation(src);
+            const page = this.addNewPage('', false, { orientation, scroll: false });
+            const area = this.getPageArea(page);
+            await this.addImageToPage(page, src, area.w, area.h);
+          }
+          this.pagesWrapper.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
         } else {
-          const perPage = imageMode === '2' ? 2 : 1;
+          const perPage = 2;
           for (let i = 0; i < dataUrls.length; i += perPage) {
-            const page = this.addNewPage('');
+            const page = this.addNewPage('', false, { scroll: false });
             const area = this.getPageArea(page);
             const group = dataUrls.slice(i, i + perPage);
-            if (perPage === 1) {
-              await this.addImageToPage(page, group[0], area.w, area.h);
-            } else {
-              for (const src of group) await this.addImageToPage(page, src, area.w * 0.5, area.h * 0.5);
-              this.arrangeImagesOn(page, 'flex');
-            }
+            for (const src of group) await this.addImageToPage(page, src, area.w * 0.5, area.h * 0.5);
+            this.arrangeImagesOn(page, 'flex');
           }
+          this.pagesWrapper.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
         }
         this.pagesWrapper.querySelectorAll('.floating-box.box-selected').forEach((b) => b.classList.remove('box-selected'));
       } catch (error) {
@@ -645,10 +697,13 @@ export class DocumentEditorEngine {
     const H = page.clientHeight;
     const header = page.querySelector<HTMLElement>(':scope > .page-header');
     const footer = page.querySelector<HTMLElement>(':scope > .page-footer');
-    const headerFilled = !!header && !!(header.textContent || '').trim();
-    const footerFilled = !!footer && !!(footer.textContent || '').trim();
-    const y = headerFilled ? header!.offsetTop + header!.offsetHeight + 8 : pt;
-    const bottom = footerFilled ? footer!.offsetTop - 8 : H - pb;
+    // El título y el pie de página SIEMPRE reservan su espacio (tengan texto
+    // o no), para que ninguna imagen quede detrás ni al soltarla ni al
+    // escribir el título después.
+    const headerCs = header ? getComputedStyle(header) : null;
+    const footerCs = footer ? getComputedStyle(footer) : null;
+    const y = header ? header.offsetTop + header.offsetHeight + (parseFloat(headerCs!.marginBottom) || 0) : pt;
+    const bottom = footer ? footer.offsetTop - (parseFloat(footerCs!.marginTop) || 0) : H - pb;
     return { x: pl, y, w: Math.max(W - pl - pr, 80), h: Math.max(bottom - y, 80) };
   }
 
@@ -707,6 +762,13 @@ export class DocumentEditorEngine {
   private nextFloatingOffset(): number {
     this.floatingBoxCounter++;
     return (this.floatingBoxCounter % 6) * 22;
+  }
+
+  /** Horizontal si su proporción ancho/alto se aproxima a una A4 apaisada. */
+  private async guessImageOrientation(src: string): Promise<PageOrientation> {
+    const { w, h } = await loadImageNaturalSize(src);
+    const ar = w / Math.max(h, 1);
+    return ar >= LANDSCAPE_AR_MIN && ar <= LANDSCAPE_AR_MAX ? 'landscape' : 'portrait';
   }
 
   /** Agrega una imagen (y su pie de foto) a una hoja, ajustada sin deformar. */
@@ -1228,6 +1290,43 @@ export class DocumentEditorEngine {
     this.publishToolbarState();
   }
 
+  /** Cuántas imágenes con pie de foto hay en la hoja activa o en todo el documento. */
+  countLinkedCaptions(scope: 'page' | 'document'): number {
+    return this.getCaptionedImages(scope).length;
+  }
+
+  private getCaptionedImages(scope: 'page' | 'document'): HTMLElement[] {
+    const root = scope === 'page' ? this.getActivePage() : this.pagesWrapper;
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll<HTMLElement>('.floating-box[data-type="image"][data-linked-caption-id]')
+    );
+  }
+
+  /** Aplica la misma separación de pie de foto a todas las imágenes del alcance elegido. */
+  applyCaptionGapToAll(px: number, scope: 'page' | 'document'): number {
+    const imgs = this.getCaptionedImages(scope);
+    this.busy = true;
+    imgs.forEach((img) => {
+      img.dataset.capGap = String(Math.round(px));
+      this.syncLinkedCaption(img);
+      // Si el pie se sale por abajo de la hoja, subimos la imagen lo necesario.
+      const cap = this.getLinkedCaption(img);
+      const page = img.parentElement;
+      if (cap && page) {
+        const overflow = cap.offsetTop + cap.offsetHeight - page.clientHeight;
+        if (overflow > 0) {
+          img.style.top = `${Math.max(0, img.offsetTop - overflow)}px`;
+          this.syncLinkedCaption(img);
+        }
+      }
+    });
+    this.busy = false;
+    this.commitNow(); // un solo paso en el historial: se deshace de una vez
+    this.publishToolbarState();
+    return imgs.length;
+  }
+
   /** Devuelve el pie a su posición automática (centrado bajo la imagen). */
   resetCaptionPlacement() {
     const img = this.getEtImage();
@@ -1498,10 +1597,15 @@ export class DocumentEditorEngine {
     this.busy = true;
 
     try {
-      const pdf = new jsPDF('p', 'mm', 'a4');
       const pages = this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page');
+      const orientationOf = (page: HTMLElement): PageOrientation =>
+        page.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
+      const firstOrientation = pages[0] ? orientationOf(pages[0]) : 'portrait';
+      const pdf = new jsPDF(firstOrientation === 'landscape' ? 'l' : 'p', 'mm', 'a4');
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
+        const orientation = orientationOf(page);
+        const { w, h } = PAGE_MM[orientation];
         const canvas = await html2canvas(page, {
           scale: 2,
           useCORS: true,
@@ -1509,8 +1613,8 @@ export class DocumentEditorEngine {
           backgroundColor: '#ffffff',
           windowWidth: page.scrollWidth,
         });
-        if (i > 0) pdf.addPage();
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+        if (i > 0) pdf.addPage('a4', orientation === 'landscape' ? 'l' : 'p');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, w, h);
       }
       pdf.save(`Documento_Ensamblado_${Date.now()}.pdf`);
     } catch (error) {
