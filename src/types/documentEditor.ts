@@ -58,6 +58,10 @@ export interface ToolbarState {
   fill: string;
   /** Separación imagen–pie de foto en px (null si no aplica). */
   captionGap: number | null;
+  /** Si la imagen seleccionada está actualmente en modo recorte. */
+  cropping: boolean;
+  /** Si la imagen seleccionada tiene un recorte aplicado (aunque no esté en modo recorte ahora). */
+  hasCrop: boolean;
 }
 
 /** Callbacks con los que el motor avisa a React de cambios de estado. */
