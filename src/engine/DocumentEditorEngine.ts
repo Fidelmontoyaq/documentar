@@ -284,15 +284,27 @@ export class DocumentEditorEngine {
         this.redo();
         return;
       }
-      if ((k === 'c' || k === 'x') && this.getSelectedBox() && !this.hasTextSelection()) {
+      if (k === 'c' && this.getSelectedBox() && !this.hasTextSelection()) {
         e.preventDefault();
-        this.copySelection(k === 'x');
+        this.copySelection(false);
       }
+      return;
+    }
+    const selected = this.getSelectedBox();
+    // "C" (sin Ctrl) activa/desactiva el recorte de la imagen seleccionada,
+    // igual que un atajo de una sola letra en un editor de diseño.
+    if (!t?.isContentEditable && !inField && e.key.toLowerCase() === 'c' && selected?.dataset.type === 'image') {
+      e.preventDefault();
+      this.toggleCropMode();
+      return;
+    }
+    if (e.key === 'Escape' && selected?.classList.contains('cropping')) {
+      e.preventDefault();
+      this.exitCropMode(selected);
       return;
     }
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (t?.isContentEditable || inField) return;
-    const selected = this.getSelectedBox();
     if (selected) {
       e.preventDefault();
       this.removeFloatingBox(selected);
@@ -434,7 +446,13 @@ export class DocumentEditorEngine {
   addNewPage(
     contentHTML = '',
     isPdfPage = false,
-    opts: { after?: HTMLElement | null; scroll?: boolean; activate?: boolean; orientation?: PageOrientation } = {}
+    opts: {
+      after?: HTMLElement | null;
+      scroll?: boolean;
+      activate?: boolean;
+      orientation?: PageOrientation;
+      fileGroup?: { id: string; label: string };
+    } = {}
   ): HTMLElement {
     this.pageCounter++;
     const pageId = `page-${Date.now()}-${this.pageCounter}`;
@@ -442,6 +460,10 @@ export class DocumentEditorEngine {
     if (opts.after) opts.after.insertAdjacentHTML('afterend', html);
     else this.pagesWrapper.insertAdjacentHTML('beforeend', html);
     const newPageEl = document.getElementById(pageId) as HTMLElement;
+    if (opts.fileGroup) {
+      newPageEl.dataset.fileGroup = opts.fileGroup.id;
+      newPageEl.dataset.fileLabel = opts.fileGroup.label;
+    }
     this.wirePageToolbar(newPageEl);
     this.updatePageNumbers();
     if (opts.activate !== false) this.setActivePage(newPageEl);
@@ -543,6 +565,14 @@ export class DocumentEditorEngine {
     return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page')).map((p) => p.id);
   }
 
+  /** A qué archivo importado pertenece cada hoja (si viene de uno), para colorear/agrupar en el organizador. */
+  getPageGroups(): { id: string; groupId: string | null; label: string | null }[] {
+    return this.getPageIds().map((id) => {
+      const el = document.getElementById(id);
+      return { id, groupId: el?.dataset.fileGroup ?? null, label: el?.dataset.fileLabel ?? null };
+    });
+  }
+
   /** Reordena las hojas del documento según la lista de ids. */
   reorderPages(ids: string[]) {
     ids.forEach((id) => {
@@ -550,20 +580,23 @@ export class DocumentEditorEngine {
       if (el && this.pagesWrapper.contains(el)) this.pagesWrapper.appendChild(el);
     });
     this.updatePageNumbers();
+    this.commitNow();
   }
 
-  /** Elimina varias hojas a la vez (siempre queda al menos una). */
+  /** Elimina varias hojas a la vez (siempre queda al menos una). Se puede deshacer con Ctrl+Z. */
   deletePages(ids: string[]) {
     const all = this.getPageIds();
     const toDelete = ids.length >= all.length ? ids.filter((id) => id !== all.find((a) => ids.includes(a))) : ids;
     toDelete.forEach((id) => document.getElementById(id)?.remove());
     this.updatePageNumbers();
     this.getActivePage();
+    this.commitNow();
   }
 
   /** Duplica varias hojas (cada copia queda justo después de su original). */
   duplicatePages(ids: string[]) {
     ids.forEach((id) => this.duplicatePage(id));
+    this.commitNow();
   }
 
   scrollToPage(id: string) {
@@ -624,11 +657,16 @@ export class DocumentEditorEngine {
 
     for (const file of otherFiles) {
       const ext = fileExtension(file.name);
+      // Cada archivo (PDF o Word) es su propio "grupo": así el organizador
+      // puede pintar de un color distinto las hojas que vinieron de cada uno.
+      const fileGroup = { id: `grp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: file.name };
       try {
         if (ext === 'pdf') {
-          await processPDFFile(file, (pageHTML, orientation) => this.addNewPage(pageHTML, true, { orientation }));
+          await processPDFFile(file, (pageHTML, orientation) =>
+            this.addNewPage(pageHTML, true, { orientation, fileGroup })
+          );
         } else if (ext === 'docx') {
-          this.addNewPage(await processDocxFile(file));
+          this.addNewPage(await processDocxFile(file), false, { fileGroup });
         }
       } catch (error) {
         console.error(`Error al procesar archivo ${file.name}:`, error);
@@ -651,20 +689,28 @@ export class DocumentEditorEngine {
             this.arrangeImagesOn(page, 'flex');
           }
         } else if (imageMode === '1') {
-          // Una hoja nueva por imagen: si la imagen es horizontal y se
-          // aproxima a la proporción de una A4 apaisada, la hoja se crea
-          // horizontal para aprovecharla a página completa.
-          for (const src of dataUrls) {
+          // Una hoja nueva por imagen: cada una es su propio archivo, así que
+          // cada hoja recibe su propio grupo/color en el organizador. Si la
+          // imagen es horizontal y se aproxima a una A4 apaisada, la hoja se
+          // crea horizontal para aprovecharla a página completa.
+          for (let i = 0; i < dataUrls.length; i++) {
+            const src = dataUrls[i];
+            const fileGroup = {
+              id: `grp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`,
+              label: imageFiles[i]?.name ?? 'Imagen',
+            };
             const orientation = await this.guessImageOrientation(src);
-            const page = this.addNewPage('', false, { orientation, scroll: false });
+            const page = this.addNewPage('', false, { orientation, scroll: false, fileGroup });
             const area = this.getPageArea(page);
             await this.addImageToPage(page, src, area.w, area.h);
           }
           this.pagesWrapper.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
         } else {
+          // Varias imágenes comparten cada hoja: forman, entre todas, un solo grupo.
+          const fileGroup = { id: `grp-${Date.now()}-batch`, label: `${dataUrls.length} imágenes` };
           const perPage = 2;
           for (let i = 0; i < dataUrls.length; i += perPage) {
-            const page = this.addNewPage('', false, { scroll: false });
+            const page = this.addNewPage('', false, { scroll: false, fileGroup });
             const area = this.getPageArea(page);
             const group = dataUrls.slice(i, i + perPage);
             for (const src of group) await this.addImageToPage(page, src, area.w * 0.5, area.h * 0.5);
@@ -1138,6 +1184,125 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  // ===================== RECORTE DE IMAGEN (no destructivo, como en Word) =====================
+  //
+  // La imagen de origen nunca se modifica ni se recorta de verdad: dentro
+  // del visor (la propia caja) se posiciona y escala con estilos absolutos
+  // (data-crop-x/y/w/h). Redimensionar la caja mientras se recorta solo
+  // cambia el tamaño del "visor" -- la imagen se queda fija debajo -- así
+  // que siempre se puede deshacer el recorte o volver a ajustarlo después.
+
+  private applyCropStyle(box: HTMLElement) {
+    const img = box.querySelector<HTMLImageElement>('img');
+    if (!img) return;
+    const w = parseFloat(box.dataset.cropW || '0');
+    const h = parseFloat(box.dataset.cropH || '0');
+    const x = parseFloat(box.dataset.cropX || '0');
+    const y = parseFloat(box.dataset.cropY || '0');
+    img.style.position = 'absolute';
+    img.style.maxWidth = 'none';
+    img.style.left = `${x}px`;
+    img.style.top = `${y}px`;
+    img.style.width = `${w}px`;
+    img.style.height = `${h}px`;
+    img.classList.remove('w-full', 'h-full');
+  }
+
+  private enterCropMode(box: HTMLElement) {
+    if (box.dataset.type !== 'image') return;
+    if (!box.dataset.cropW) {
+      // Arranca mostrando exactamente lo que ya se veía (sin recorte).
+      box.dataset.cropW = String(box.offsetWidth);
+      box.dataset.cropH = String(box.offsetHeight);
+      box.dataset.cropX = '0';
+      box.dataset.cropY = '0';
+    }
+    box.classList.add('cropping');
+    this.applyCropStyle(box);
+    this.publishToolbarState();
+  }
+
+  private exitCropMode(box: HTMLElement) {
+    box.classList.remove('cropping');
+    this.commitNow();
+    this.publishToolbarState();
+  }
+
+  /** Activa o desactiva el modo de recorte de la imagen seleccionada. */
+  toggleCropMode() {
+    const box = this.getSelectedBox() ?? (this.etTargetKind === 'box' ? this.etTarget : null);
+    if (!box || box.dataset.type !== 'image') return;
+    if (box.classList.contains('cropping')) this.exitCropMode(box);
+    else this.enterCropMode(box);
+  }
+
+  /** Quita el recorte: la imagen vuelve a llenar la caja tal como estaba. */
+  resetCrop() {
+    const box = this.getSelectedBox() ?? (this.etTargetKind === 'box' ? this.etTarget : null);
+    if (!box || box.dataset.type !== 'image') return;
+    delete box.dataset.cropW;
+    delete box.dataset.cropH;
+    delete box.dataset.cropX;
+    delete box.dataset.cropY;
+    box.classList.remove('cropping');
+    const img = box.querySelector<HTMLImageElement>('img');
+    if (img) {
+      img.style.position = '';
+      img.style.left = '';
+      img.style.top = '';
+      img.style.width = '';
+      img.style.height = '';
+      img.style.maxWidth = '';
+      img.classList.add('w-full', 'h-full');
+    }
+    this.commitNow();
+    this.publishToolbarState();
+  }
+
+  private startCropPan(box: HTMLElement, e: PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.selectFloatingBox(box);
+    this.busy = true;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startCx = parseFloat(box.dataset.cropX || '0');
+    const startCy = parseFloat(box.dataset.cropY || '0');
+    const onMove = (ev: PointerEvent) => {
+      box.dataset.cropX = String(startCx + (ev.clientX - startX) / this.zoom);
+      box.dataset.cropY = String(startCy + (ev.clientY - startY) / this.zoom);
+      this.applyCropStyle(box);
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      this.busy = false;
+      this.commitNow();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  /** Acerca/aleja el recorte (rueda del mouse) manteniendo su centro fijo. */
+  zoomCrop(box: HTMLElement, factor: number) {
+    if (!box.dataset.cropW) return;
+    const w = parseFloat(box.dataset.cropW || '0');
+    const h = parseFloat(box.dataset.cropH || '0');
+    const x = parseFloat(box.dataset.cropX || '0');
+    const y = parseFloat(box.dataset.cropY || '0');
+    const minW = box.offsetWidth;
+    const minH = box.offsetHeight;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const newW = Math.max(minW, w * factor);
+    const newH = Math.max(minH, h * factor);
+    box.dataset.cropW = String(newW);
+    box.dataset.cropH = String(newH);
+    box.dataset.cropX = String(cx - newW / 2);
+    box.dataset.cropY = String(cy - newH / 2);
+    this.applyCropStyle(box);
+  }
+
   private initFloatingBox(box: HTMLElement) {
     if (!box || box.dataset.initialized === 'true') return;
     box.dataset.initialized = 'true';
@@ -1158,11 +1323,23 @@ export class DocumentEditorEngine {
       this.startBoxMove(box, e as PointerEvent);
     });
 
-    // Las imágenes también se arrastran desde la propia imagen. Los textos no:
-    // ahí un clic debe colocar el cursor para escribir.
+    // Las imágenes también se arrastran desde la propia imagen (o, si se
+    // está recortando, arrastrar la imagen mueve el recorte, no la hoja). Los
+    // textos no: ahí un clic debe colocar el cursor para escribir.
     if (box.dataset.type === 'image') {
-      box.querySelector<HTMLElement>('.floating-box-content')?.addEventListener('pointerdown', (e) =>
-        this.startBoxMove(box, e as PointerEvent)
+      const content = box.querySelector<HTMLElement>('.floating-box-content');
+      content?.addEventListener('pointerdown', (e) => {
+        if (box.classList.contains('cropping')) this.startCropPan(box, e as PointerEvent);
+        else this.startBoxMove(box, e as PointerEvent);
+      });
+      content?.addEventListener(
+        'wheel',
+        (e) => {
+          if (!box.classList.contains('cropping')) return;
+          e.preventDefault();
+          this.zoomCrop(box, e.deltaY < 0 ? 1.06 : 0.94);
+        },
+        { passive: false }
       );
     }
 
@@ -1223,6 +1400,8 @@ export class DocumentEditorEngine {
       fontSize: editable?.style.fontSize?.replace('px', '') || '16',
       fill: isBox && boxType !== 'image' ? this.toHex(this.etTarget.style.backgroundColor) : '',
       captionGap: img && img.dataset.linkedCaptionId ? this.capGapOf(img) : null,
+      cropping: boxType === 'image' ? this.etTarget.classList.contains('cropping') : false,
+      hasCrop: boxType === 'image' ? !!this.etTarget.dataset.cropW : false,
     };
     this.listeners.onToolbarStateChange?.(state);
   }
