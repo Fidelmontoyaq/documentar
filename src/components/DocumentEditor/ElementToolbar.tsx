@@ -1,9 +1,9 @@
 import {
   Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  List, Palette, Copy, ClipboardPaste, Scissors,
+  List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
-  Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers,
+  Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
 } from 'lucide-react';
 import { groupedFontOptions } from '../../engine/fontCatalog';
 import type { ToolbarState } from '../../types/documentEditor';
@@ -17,7 +17,6 @@ interface ElementToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onCopy: () => void;
-  onCut: () => void;
   onPaste: () => void;
   onFormat: (command: string, value?: string | null) => void;
   onApplyFont: (value: string) => void;
@@ -30,6 +29,8 @@ interface ElementToolbarProps {
   onCaptionGap: (px: number) => void;
   onCaptionReset: () => void;
   onCaptionGapAll: () => void;
+  onToggleCrop: () => void;
+  onResetCrop: () => void;
 }
 
 /**
@@ -40,9 +41,10 @@ interface ElementToolbarProps {
  */
 export function ElementToolbar({
   state, history, recentFonts,
-  onUndo, onRedo, onCopy, onCut, onPaste,
+  onUndo, onRedo, onCopy, onPaste,
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
+  onToggleCrop, onResetCrop,
 }: ElementToolbarProps) {
   const { recent, rest } = groupedFontOptions(recentFonts);
   const isBox = state?.isBox ?? false;
@@ -64,7 +66,6 @@ export function ElementToolbar({
       {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
       <div className="et-sep" />
       {b('Copiar (Ctrl+C)', onCopy, <Copy className="w-4 h-4" />)}
-      {b('Cortar (Ctrl+X)', onCut, <Scissors className="w-4 h-4" />)}
       {b('Pegar (Ctrl+V)', onPaste, <ClipboardPaste className="w-4 h-4" />)}
       <div className="et-sep" />
 
@@ -159,6 +160,30 @@ export function ElementToolbar({
           <button type="button" className="et-btn" title="Aplicar esta separación a todos los pies de foto" onMouseDown={keep} onClick={onCaptionGapAll}>
             <Layers className="w-4 h-4" /> <span>Aplicar a todos</span>
           </button>
+        </>
+      )}
+
+      {isImage && (
+        <>
+          <div className="et-sep" />
+          <button
+            type="button"
+            className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`}
+            title="Recortar (tecla C). La imagen no se borra, solo se oculta la parte recortada."
+            onMouseDown={keep}
+            onClick={onToggleCrop}
+          >
+            <Crop className="w-4 h-4" />
+            <span>{state?.cropping ? 'Listo' : 'Recortar'}</span>
+          </button>
+          {state?.cropping && (
+            <span className="text-[11px] text-amber-300 px-1 hidden sm:inline">
+              Arrastra la imagen para moverla, rueda del mouse para acercar, Esc para terminar
+            </span>
+          )}
+          {state?.hasCrop && !state.cropping && (
+            b('Quitar recorte', onResetCrop, <RotateCcw className="w-4 h-4" />)
+          )}
         </>
       )}
 

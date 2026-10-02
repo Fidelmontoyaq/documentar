@@ -97,3 +97,9 @@ body.exporting .has-placeholder::before { content: none !important; }
 @keyframes dropLinePulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 .check-pop { animation: checkPop 160ms ease-out; }
 @keyframes checkPop { 0% { transform: scale(.5); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }
+
+/* Modo de recorte de imagen */
+.floating-box.cropping { outline: 2px dashed #f59e0b; outline-offset: 2px; cursor: move; }
+.floating-box.cropping .floating-box-content { cursor: move; }
+.floating-box.cropping .floating-box-ctrl { background: #f59e0b; border-color: #fff; }
+.floating-box.cropping .floating-box-content img { user-select: none; -webkit-user-drag: none; }

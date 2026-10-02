@@ -141,7 +141,6 @@ export function DocumentEditorApp() {
             onUndo={() => engine?.undo()}
             onRedo={() => engine?.redo()}
             onCopy={() => engine?.copySelection(false)}
-            onCut={() => engine?.copySelection(true)}
             onPaste={() => engine?.pasteClipboard()}
             onFormat={(command, value) => engine?.etFormat(command, value ?? null)}
             onApplyFont={(value) => engine?.etApplyFont(value)}
@@ -153,6 +152,8 @@ export function DocumentEditorApp() {
             onSetFill={(color) => engine?.etSetFill(color)}
             onCaptionGap={(px) => engine?.setCaptionGap(px)}
             onCaptionReset={() => engine?.resetCaptionPlacement()}
+            onToggleCrop={() => engine?.toggleCropMode()}
+            onResetCrop={() => engine?.resetCrop()}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
           <EditorCanvas
@@ -164,7 +165,7 @@ export function DocumentEditorApp() {
         </div>
       </div>
 
-      <PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} />
+      <PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} history={history} />
 
       {gapDialog && (
         <div
