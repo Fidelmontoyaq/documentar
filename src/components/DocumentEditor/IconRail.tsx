@@ -8,6 +8,7 @@ import {
   FileDown,
   SlidersHorizontal,
   LayoutTemplate,
+  PenTool,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
 import type { ArrangeLayoutId } from '../../types/documentEditor';
@@ -17,6 +18,7 @@ interface IconRailProps {
   onAddImages: (files: File[]) => void;
   onAddTextBox: () => void;
   onAddPage: () => void;
+  onOpenSignature: () => void;
   onOpenOrganizer: () => void;
   onExportPDF: () => void;
   onToggleFormatPanel: () => void;
@@ -34,6 +36,7 @@ export function IconRail({
   onAddImages,
   onAddTextBox,
   onAddPage,
+  onOpenSignature,
   onOpenOrganizer,
   onExportPDF,
   onToggleFormatPanel,
@@ -102,6 +105,11 @@ export function IconRail({
       <button type="button" onClick={onAddPage} title="Página en blanco" className={btn}>
         <FilePlus className="w-5 h-5" />
         <span className="text-[10px] leading-none">Hoja</span>
+      </button>
+
+      <button type="button" onClick={onOpenSignature} title="Agregar firma" className={btn}>
+        <PenTool className="w-5 h-5" />
+        <span className="text-[10px] leading-none">Firma</span>
       </button>
 
       <button type="button" onClick={onOpenOrganizer} title="Organizar páginas" className={btn}>

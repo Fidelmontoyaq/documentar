@@ -7,6 +7,7 @@ import { EditorCanvas } from './EditorCanvas';
 import { PageOrganizerModal } from './PageOrganizerModal';
 import { ElementToolbar } from './ElementToolbar';
 import { LoadingOverlay } from './LoadingOverlay';
+import { SignaturePad } from './SignaturePad';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
 
@@ -36,6 +37,7 @@ export function DocumentEditorApp() {
 
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [organizerOpen, setOrganizerOpen] = useState(false);
+  const [signatureOpen, setSignatureOpen] = useState(false);
   const [imageMode, setImageMode] = useState<ImagesPerPageMode>('1');
   const [fontValue, setFontValue] = useState(DEFAULT_FONT);
   const [marginValue, setMarginValue] = useState<MarginSelectValue>(DEFAULT_MARGIN);
@@ -96,6 +98,7 @@ export function DocumentEditorApp() {
           onAddImages={handleAddImages}
           onAddTextBox={() => engine?.insertFloatingTextBox()}
           onAddPage={() => engine?.addNewPage()}
+          onOpenSignature={() => setSignatureOpen(true)}
           onOpenOrganizer={() => setOrganizerOpen(true)}
           onExportPDF={() => engine?.exportToPDF()}
           onToggleFormatPanel={() => setSidePanelOpen((v) => !v)}
@@ -114,6 +117,7 @@ export function DocumentEditorApp() {
           onAddImages={handleAddImages}
           onAddTextBox={() => engine?.insertFloatingTextBox()}
           onAddPage={() => engine?.addNewPage()}
+          onOpenSignature={() => setSignatureOpen(true)}
           fontValue={fontValue}
           recentFonts={recentFonts}
           onFontChange={(value) => {
@@ -220,6 +224,14 @@ export function DocumentEditorApp() {
           </div>
         </div>
       )}
+
+      <SignaturePad
+        isOpen={signatureOpen}
+        onClose={() => setSignatureOpen(false)}
+        onConfirm={(dataUrl) => {
+          void engine?.insertFloatingImage(dataUrl);
+        }}
+      />
 
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
 

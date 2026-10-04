@@ -22,6 +22,7 @@ import {
   Layers,
   LayoutGrid,
   Rows,
+  PenTool,
 } from 'lucide-react';
 import { groupedFontOptions } from '../../engine/fontCatalog';
 import type { ImagesPerPageMode, MarginSelectValue } from '../../types/documentEditor';
@@ -36,6 +37,7 @@ interface SidePanelProps {
   onAddImages: (files: File[]) => void;
   onAddTextBox: () => void;
   onAddPage: () => void;
+  onOpenSignature: () => void;
   fontValue: string;
   recentFonts: string[];
   onFontChange: (value: string) => void;
@@ -62,6 +64,7 @@ export function SidePanel({
   onAddImages,
   onAddTextBox,
   onAddPage,
+  onOpenSignature,
   fontValue,
   recentFonts,
   onFontChange,
@@ -177,6 +180,13 @@ export function SidePanel({
             className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
           >
             <Type className="w-3.5 h-3.5 text-emerald-400" /> Agregar Cuadro de Texto
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSignature}
+            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <PenTool className="w-3.5 h-3.5 text-amber-400" /> Agregar Firma
           </button>
         </div>
 
