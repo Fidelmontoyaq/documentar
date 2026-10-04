@@ -760,7 +760,11 @@ export class DocumentEditorEngine {
    */
   arrangeImages(layout: ArrangeLayoutId, perPage = 0) {
     const page = this.getActivePage();
-    if (!page) return;
+    if (page) this.arrangeImagesPaged(page, layout, perPage);
+  }
+
+  /** Igual que `arrangeImages`, pero sobre una hoja concreta (no necesariamente la activa). */
+  private arrangeImagesPaged(page: HTMLElement, layout: ArrangeLayoutId, perPage = 0) {
     this.busy = true;
     const boxes = Array.from(page.querySelectorAll<HTMLElement>(IMAGE_SELECTOR));
     const n = perPage > 0 ? Math.floor(perPage) : boxes.length;
@@ -780,6 +784,32 @@ export class DocumentEditorEngine {
     this.arrangeImagesOn(page, layout);
     this.busy = false;
     this.commitNow();
+  }
+
+  /**
+   * Agrega varias imágenes a una hoja concreta del documento (como al soltar
+   * archivos directamente sobre ella en el organizador). Si pasan de
+   * `maxPerPage`, las que sobran se reparten en hojas nuevas justo después.
+   */
+  async addImagesToPage(pageId: string, files: File[], maxPerPage = 4): Promise<void> {
+    const page = document.getElementById(pageId);
+    if (!page || !files.length) return;
+    this.busy = true;
+    this.listeners.onLoadingChange?.({ show: true, title: 'Agregando imágenes', status: 'Colocándolas en la hoja...' });
+    try {
+      const dataUrls = await Promise.all(files.map(readFileAsDataURL));
+      const area = this.getPageArea(page);
+      for (const src of dataUrls) {
+        await this.addImageToPage(page, src, area.w * 0.5, area.h * 0.5);
+      }
+    } catch (error) {
+      console.error('Error al agregar imágenes a la hoja:', error);
+      this.listeners.onError?.('Ocurrió un error al agregar una o más imágenes.');
+    } finally {
+      this.busy = false;
+      this.listeners.onLoadingChange?.({ show: false, title: '', status: '' });
+    }
+    this.arrangeImagesPaged(page, 'grid', maxPerPage);
   }
 
   private arrangeImagesOn(page: HTMLElement, layout: ArrangeLayoutId) {
