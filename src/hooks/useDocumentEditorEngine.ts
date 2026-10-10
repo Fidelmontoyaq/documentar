@@ -29,6 +29,8 @@ export function useDocumentEditorEngine() {
   const [toolbarState, setToolbarState] = useState<ToolbarState | null>(null);
   const [loading, setLoading] = useState<LoadingState>({ show: false, title: '', status: '' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pdfEditOn, setPdfEditOn] = useState(false);
   const [recentFonts, setRecentFonts] = useState<string[]>(() => loadRecentFonts());
 
   useEffect(() => {
@@ -44,6 +46,8 @@ export function useDocumentEditorEngine() {
       onFontUsed: (font) => setRecentFonts((prev) => rememberFontUsed(prev, font)),
       onLoadingChange: setLoading,
       onError: setErrorMessage,
+      onNotice: setNotice,
+      onPdfEditModeChange: setPdfEditOn,
     });
     instance.setToolbarElement(toolbarRef.current);
     setEngine(instance);
@@ -70,6 +74,9 @@ export function useDocumentEditorEngine() {
     loading,
     errorMessage,
     clearError,
+    notice,
+    setNotice,
+    pdfEditOn,
     recentFonts,
   };
 }
