@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DocumentEditorEngine } from '../engine/DocumentEditorEngine';
 import { loadRecentFonts, rememberFontUsed } from '../engine/fontCatalog';
-import type { ToolbarState } from '../types/documentEditor';
+import type { PageInfo, ToolbarState } from '../types/documentEditor';
 
 interface LoadingState {
   show: boolean;
@@ -25,6 +25,7 @@ export function useDocumentEditorEngine() {
   const [imageCount, setImageCount] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [toolbarState, setToolbarState] = useState<ToolbarState | null>(null);
   const [loading, setLoading] = useState<LoadingState>({ show: false, title: '', status: '' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export function useDocumentEditorEngine() {
       onActiveImagesChange: setImageCount,
       onHistoryChange: setHistory,
       onZoomChange: setZoom,
+      onPageInfoChange: setPageInfo,
       onToolbarStateChange: setToolbarState,
       onFontUsed: (font) => setRecentFonts((prev) => rememberFontUsed(prev, font)),
       onLoadingChange: setLoading,
@@ -64,6 +66,7 @@ export function useDocumentEditorEngine() {
     zoom,
     history,
     toolbarState,
+    pageInfo,
     loading,
     errorMessage,
     clearError,
