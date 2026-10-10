@@ -4,6 +4,7 @@
 // arrastre de cuadros flotantes, etc.) vive aquí como una sola clase. React
 // solo dibuja el "chrome" (riel, panel, modal, barra) y llama a estos métodos.
 import Sortable from 'sortablejs';
+import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import type {
@@ -11,8 +12,10 @@ import type {
   CurrentMargin,
   DocumentEditorEngineListeners,
   FloatingBoxType,
+  ExportOptions,
   ImagesPerPageMode,
   MarginPresetClass,
+  PageInfo,
   PageOrientation,
   ShapeKind,
   ShapeState,
@@ -32,16 +35,11 @@ const MARGIN_CLASSES: MarginPresetClass[] = [
 ];
 
 const PAGE_BASE_CLASSES =
-  'a4-page bg-white text-slate-800 shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border transition-all duration-200 print:shadow-none print:w-full print:h-full break-after-page group';
+  'a4-page bg-white text-slate-800 shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border print:shadow-none print:w-full print:h-full break-after-page group';
 
 const ORIENTATION_SIZE_CLASSES: Record<PageOrientation, string> = {
   portrait: 'w-[210mm] min-h-[297mm]',
   landscape: 'w-[297mm] min-h-[210mm]',
-};
-// mm reales por orientación (los usa también la exportación a PDF).
-const PAGE_MM: Record<PageOrientation, { w: number; h: number }> = {
-  portrait: { w: 210, h: 297 },
-  landscape: { w: 297, h: 210 },
 };
 // Relación de aspecto (ancho/alto) típica de una hoja A4 apaisada, con margen de tolerancia.
 const LANDSCAPE_AR_MIN = 1.12;
@@ -96,6 +94,12 @@ export class DocumentEditorEngine {
   private folioToken = 0;
   private folioRaf = 0;
   private folioCache = new Map<string, { url: string; w: number; h: number }>();
+
+  // Guías: imán a bordes/centros y cuadrícula
+  private snapEnabled = true;
+  private gridEnabled = false;
+  private lastPageInfo = '';
+  private stickerOrig = new Map<string, string>();
 
   // Móvil: ajuste automático del zoom al ancho y pellizco con dos dedos
   private autoFit = false;
@@ -162,7 +166,7 @@ export class DocumentEditorEngine {
       attributes: true,
       attributeFilter: [
         'style', 'class', 'data-cap-gap', 'data-cap-dx', 'data-cap-w', 'data-ar', 'data-rotation',
-        'data-shape', 'data-fill-on', 'data-fill', 'data-fill-op', 'data-bc', 'data-bw', 'data-sides', 'data-rad', 'data-has-img',
+        'data-kind', 'data-hf', 'data-bg', 'data-shape', 'data-fill-on', 'data-fill', 'data-fill-op', 'data-bc', 'data-bw', 'data-sides', 'data-rad', 'data-has-img',
       ],
     });
 
@@ -237,6 +241,7 @@ export class DocumentEditorEngine {
       const page = this.getActivePage();
       const count = page ? page.querySelectorAll(IMAGE_SELECTOR).length : 0;
       this.listeners.onActiveImagesChange?.(count);
+      this.emitPageInfo();
     });
   }
 
@@ -428,7 +433,7 @@ export class DocumentEditorEngine {
 
   /** Hojas donde se puede tocar el margen: nunca las páginas provenientes de un PDF importado. */
   private editableMarginPages(): HTMLElement[] {
-    return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page:not([data-pdf-page="true"])'));
+    return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page:not([data-pdf-page="true"]):not([data-kind="design"])'));
   }
 
   changeGlobalMargin(marginClass: MarginPresetClass) {
@@ -517,6 +522,22 @@ export class DocumentEditorEngine {
       newPageEl.dataset.fileLabel = opts.fileGroup.label;
     }
     this.wirePageToolbar(newPageEl);
+    // Una hoja nueva "en blanco" hereda el lienzo (tamaño, fondo) de la hoja de al lado
+    // cuando esa hoja tiene un tamaño propio o es de diseño.
+    const source = opts.after ?? this.activePage;
+    if (!isPdfPage && !opts.orientation && !opts.fileGroup && source && source.dataset.pdfPage !== 'true') {
+      if (source.dataset.custom === '1' || source.dataset.kind === 'design') {
+        this.applySize(
+          newPageEl,
+          source.offsetWidth,
+          source.offsetHeight,
+          source.dataset.kind === 'design' ? 'design' : 'doc',
+          true
+        );
+        if (source.dataset.bg) this.applyBackground(newPageEl, source.dataset.bg);
+        if (source.dataset.hf) newPageEl.dataset.hf = source.dataset.hf;
+      }
+    }
     this.updatePageNumbers();
     if (opts.activate !== false) this.setActivePage(newPageEl);
     if (opts.scroll !== false) newPageEl.scrollIntoView({ behavior: 'smooth' });
@@ -583,6 +604,7 @@ export class DocumentEditorEngine {
       });
     });
     this.listeners.onPageCountChange?.(pages.length);
+    this.updateWrapperWidth();
     this.scheduleFolios();
     if (this.autoFit) this.fitToWidth();
   }
@@ -593,17 +615,20 @@ export class DocumentEditorEngine {
 
   getPageOrientation(pageId: string): PageOrientation {
     const el = document.getElementById(pageId);
-    return el?.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
+    return el && el.offsetWidth > el.offsetHeight ? 'landscape' : 'portrait';
   }
 
   setPageOrientation(pageId: string, orientation: PageOrientation) {
     const page = document.getElementById(pageId);
-    if (!page) return;
-    page.classList.remove(...Object.values(ORIENTATION_SIZE_CLASSES).flatMap((c) => c.split(' ')));
-    page.classList.add(...ORIENTATION_SIZE_CLASSES[orientation].split(' '));
-    page.dataset.orientation = orientation;
-    // Reacomodamos las imágenes existentes al nuevo tamaño de hoja.
-    requestAnimationFrame(() => this.arrangeImagesOn(page, 'grid'));
+    if (!page || this.getPageOrientation(pageId) === orientation) return;
+    const ow = page.offsetWidth;
+    const oh = page.offsetHeight;
+    const kind = page.dataset.kind === 'design' ? 'design' : 'doc';
+    this.applySize(page, oh, ow, kind, page.dataset.custom === '1');
+    if (kind === 'design') this.scaleBoxes(page, ow, oh, oh, ow);
+    // En hojas de documento, las imágenes se reacomodan al nuevo formato.
+    else requestAnimationFrame(() => this.arrangeImagesOn(page, 'grid'));
+    this.updatePageNumbers();
     this.commitNow();
   }
 
@@ -829,8 +854,10 @@ export class DocumentEditorEngine {
     // escribir el título después.
     const headerCs = header ? getComputedStyle(header) : null;
     const footerCs = footer ? getComputedStyle(footer) : null;
-    const y = header ? header.offsetTop + header.offsetHeight + (parseFloat(headerCs!.marginBottom) || 0) : pt;
-    const bottom = footer ? footer.offsetTop - (parseFloat(footerCs!.marginTop) || 0) : H - pb;
+    const headerShown = !!header && header.getClientRects().length > 0;
+    const footerShown = !!footer && footer.getClientRects().length > 0;
+    const y = headerShown ? header!.offsetTop + header!.offsetHeight + (parseFloat(headerCs!.marginBottom) || 0) : pt;
+    const bottom = footerShown ? footer!.offsetTop - (parseFloat(footerCs!.marginTop) || 0) : H - pb;
     return { x: pl, y, w: Math.max(W - pl - pr, 80), h: Math.max(bottom - y, 80) };
   }
 
@@ -949,6 +976,8 @@ export class DocumentEditorEngine {
     const top = Math.round(area.y + (area.h - height - CAPTION_SPACE) / 2 + offset);
 
     const box = this.insertFloatingImageAt(page, src, left, top, width, height, nat.w / nat.h);
+    box.dataset.natW = String(nat.w);
+    box.dataset.natH = String(nat.h);
     this.insertFloatingCaptionAt(page, left, top + height + 8, width, box.dataset.fbId ?? null);
     return box;
   }
@@ -1432,7 +1461,7 @@ export class DocumentEditorEngine {
   }
 
   private hideMarginGuide(page: HTMLElement) {
-    page.querySelectorAll(':scope > .margin-guide').forEach((g) => g.remove());
+    page.querySelectorAll(':scope > .margin-guide, :scope > .snap-line').forEach((g) => g.remove());
   }
 
   // ---------- Mover / redimensionar / girar ----------
@@ -1465,12 +1494,20 @@ export class DocumentEditorEngine {
     const startLeft = box.offsetLeft;
     const startTop = box.offsetTop;
     let moved = 0;
+    const targets = this.snapEnabled || this.gridEnabled ? this.snapTargets(page, box) : null;
 
     const onMove = (ev: PointerEvent) => {
       moved = Math.max(moved, Math.hypot(ev.clientX - startX, ev.clientY - startY));
       // Libre por TODA la hoja (no solo dentro de los márgenes).
-      const newLeft = Math.max(0, Math.min(startLeft + (ev.clientX - startX) / this.zoom, page.clientWidth - box.offsetWidth));
-      const newTop = Math.max(0, Math.min(startTop + (ev.clientY - startY) / this.zoom, page.clientHeight - box.offsetHeight - capExtra));
+      let newLeft = Math.max(0, Math.min(startLeft + (ev.clientX - startX) / this.zoom, page.clientWidth - box.offsetWidth));
+      let newTop = Math.max(0, Math.min(startTop + (ev.clientY - startY) / this.zoom, page.clientHeight - box.offsetHeight - capExtra));
+      if (targets && !ev.altKey) {
+        const sx = this.snapAxis(newLeft, box.offsetWidth, targets.xs);
+        const sy = this.snapAxis(newTop, box.offsetHeight, targets.ys);
+        if (sx) newLeft += sx.delta;
+        if (sy) newTop += sy.delta;
+        this.showSnapLines(page, sx?.line ?? null, sy?.line ?? null);
+      }
       box.style.left = `${newLeft}px`;
       box.style.top = `${newTop}px`;
       this.syncLinkedCaption(box);
@@ -2017,11 +2054,506 @@ export class DocumentEditorEngine {
     this.publishToolbarState();
   }
 
+  // ===================== LIENZO: tamaño, fondo, ajustes, guías, sticker =====================
+
+  private pageScope(scope: 'page' | 'all'): HTMLElement[] {
+    if (scope === 'all') return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    const p = this.getActivePage();
+    return p ? [p] : [];
+  }
+
+  /** Margen global vigente, aplicado a una hoja de documento. */
+  private applyMarginToPage(page: HTMLElement) {
+    page.classList.remove(...MARGIN_CLASSES);
+    page.style.padding = '';
+    if (this.currentMargin.type === 'class') page.classList.add(this.currentMargin.value);
+    else page.style.padding = `${this.currentMargin.value}cm`;
+  }
+
+  /** Fija el tamaño (px) y el tipo (documento o diseño) de una hoja. */
+  private applySize(page: HTMLElement, w: number, h: number, kind: 'doc' | 'design', custom: boolean) {
+    const rw = Math.round(w);
+    const rh = Math.round(h);
+    page.classList.remove(...Object.values(ORIENTATION_SIZE_CLASSES).flatMap((c) => c.split(' ')));
+    page.style.width = `${rw}px`;
+    if (kind === 'design') {
+      page.style.height = `${rh}px`;
+      page.style.minHeight = `${rh}px`;
+    } else {
+      page.style.height = '';
+      page.style.minHeight = `${rh}px`;
+    }
+    page.dataset.orientation = rw > rh ? 'landscape' : 'portrait';
+    if (custom) page.dataset.custom = '1';
+    if (page.dataset.pdfPage !== 'true') {
+      if (kind === 'design' && page.dataset.kind !== 'design') {
+        page.dataset.kind = 'design';
+        page.dataset.hf = '0';
+        page.classList.remove(...MARGIN_CLASSES);
+        page.style.padding = '0';
+      } else if (kind === 'doc' && page.dataset.kind === 'design') {
+        delete page.dataset.kind;
+        delete page.dataset.hf;
+        this.applyMarginToPage(page);
+      }
+    }
+    this.updateWrapperWidth();
+  }
+
+  /** El contenedor se ensancha según la hoja más ancha (las más angostas quedan centradas). */
+  private updateWrapperWidth() {
+    let widest = 794;
+    this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((p) => {
+      widest = Math.max(widest, p.offsetWidth);
+    });
+    this.pagesWrapper.style.width = `${widest}px`;
+  }
+
+  /** Escala los elementos de una hoja cuando cambia su tamaño (se conserva la composición). */
+  private scaleBoxes(page: HTMLElement, ow: number, oh: number, nw: number, nh: number) {
+    const sx = nw / Math.max(ow, 1);
+    const sy = nh / Math.max(oh, 1);
+    if (Math.abs(sx - 1) < 0.001 && Math.abs(sy - 1) < 0.001) return;
+    const s = Math.min(sx, sy);
+    page.querySelectorAll<HTMLElement>(':scope > .floating-box').forEach((b) => {
+      if (b.dataset.captionFor) return; // el pie sigue a su imagen
+      const crop = this.captureCrop(b);
+      const extra = this.capSpaceExtra(b);
+      const w = Math.min(b.offsetWidth * s, nw);
+      const h = Math.min(b.offsetHeight * s, Math.max(nh - extra, 20));
+      b.style.width = `${w}px`;
+      b.style.height = `${h}px`;
+      b.style.left = `${Math.max(0, Math.min(b.offsetLeft * sx, nw - w))}px`;
+      b.style.top = `${Math.max(0, Math.min(b.offsetTop * sy, nh - h - extra))}px`;
+      if (crop) this.rescaleCrop(b, crop);
+      this.applyBoxRadius(b);
+      this.syncLinkedCaption(b);
+    });
+  }
+
+  getPageInfo(): PageInfo | null {
+    const page = this.getActivePage();
+    if (!page) return null;
+    return {
+      w: page.offsetWidth,
+      h: page.offsetHeight,
+      kind: page.dataset.kind === 'design' ? 'design' : 'doc',
+      bg: page.dataset.bg || 'white',
+      hf: page.dataset.kind !== 'design' || page.dataset.hf === '1',
+      pdf: page.dataset.pdfPage === 'true',
+      images: page.querySelectorAll(IMAGE_SELECTOR).length,
+      snap: this.snapEnabled,
+      grid: this.gridEnabled,
+    };
+  }
+
+  private emitPageInfo() {
+    const info = this.getPageInfo();
+    const key = JSON.stringify(info);
+    if (key === this.lastPageInfo) return;
+    this.lastPageInfo = key;
+    this.listeners.onPageInfoChange?.(info);
+  }
+
+  /** Cambia el tamaño de la hoja activa o de todas. `kind` decide si es documento o lienzo de diseño. */
+  setCanvasSize(w: number, h: number, opts: { scope: 'page' | 'all'; kind: 'doc' | 'design' }) {
+    const nw = Math.max(50, Math.min(8000, Math.round(w)));
+    const nh = Math.max(50, Math.min(8000, Math.round(h)));
+    this.busy = true;
+    this.pageScope(opts.scope).forEach((page) => {
+      const ow = page.offsetWidth;
+      const oh = page.offsetHeight;
+      this.applySize(page, nw, nh, opts.kind, true);
+      this.scaleBoxes(page, ow, oh, nw, nh);
+    });
+    this.busy = false;
+    this.updatePageNumbers();
+    this.commitNow();
+    this.emitPageInfo();
+  }
+
+  private applyBackground(page: HTMLElement, value: string) {
+    page.classList.remove('page-transparent');
+    if (value === 'white') {
+      page.classList.add('bg-white');
+      page.style.backgroundColor = '';
+      delete page.dataset.bg;
+    } else if (value === 'transparent') {
+      page.classList.remove('bg-white');
+      page.classList.add('page-transparent');
+      page.style.backgroundColor = '';
+      page.dataset.bg = 'transparent';
+    } else {
+      page.classList.remove('bg-white');
+      page.style.backgroundColor = value;
+      page.dataset.bg = value;
+    }
+  }
+
+  /** Fondo de la hoja: 'white', 'transparent' o un color #rrggbb. */
+  setPageBackground(value: string, scope: 'page' | 'all') {
+    this.pageScope(scope).forEach((p) => this.applyBackground(p, value));
+    this.commitNow();
+    this.emitPageInfo();
+  }
+
+  /** En lienzos de diseño: mostrar u ocultar título, texto y pie de página. */
+  setHeaderFooterVisible(show: boolean, scope: 'page' | 'all') {
+    this.pageScope(scope).forEach((p) => {
+      if (p.dataset.kind === 'design') p.dataset.hf = show ? '1' : '0';
+    });
+    this.commitNow();
+    this.emitPageInfo();
+  }
+
+  private largestImage(page: HTMLElement): HTMLElement | null {
+    let best: HTMLElement | null = null;
+    let area = 0;
+    page.querySelectorAll<HTMLElement>(IMAGE_SELECTOR).forEach((b) => {
+      const a = b.offsetWidth * b.offsetHeight;
+      if (a > area) {
+        area = a;
+        best = b;
+      }
+    });
+    return best;
+  }
+
+  private dropEmptyCaption(img: HTMLElement) {
+    const cap = this.getLinkedCaption(img);
+    const typed = cap?.querySelector<HTMLElement>('[contenteditable="true"]')?.textContent ?? '';
+    if (cap && !typed.trim()) {
+      cap.remove();
+      delete img.dataset.linkedCaptionId;
+    }
+  }
+
+  private clearCropData(box: HTMLElement) {
+    ['cropW', 'cropH', 'cropX', 'cropY'].forEach((k) => delete box.dataset[k]);
+    box.classList.remove('cropping');
+    const img = this.cropImg(box);
+    if (img) {
+      img.style.position = '';
+      img.style.left = '';
+      img.style.top = '';
+      img.style.width = '';
+      img.style.height = '';
+      img.style.maxWidth = '';
+      img.classList.add('w-full', 'h-full');
+    }
+  }
+
+  /** Recorta el lienzo al contenido (ideal para stickers y logos): sin bordes sobrantes. */
+  fitCanvasToContent(pad = 0) {
+    const page = this.getActivePage();
+    if (!page) return;
+    // Los pies de foto vacíos no cuentan como contenido.
+    page.querySelectorAll<HTMLElement>(IMAGE_SELECTOR).forEach((img) => this.dropEmptyCaption(img));
+    const boxes = Array.from(page.querySelectorAll<HTMLElement>(':scope > .floating-box'));
+    if (!boxes.length) {
+      this.listeners.onError?.('Esta hoja no tiene elementos para ajustar el lienzo.');
+      return;
+    }
+    // La caja tiene 2 px de borde transparente: el contenido real queda 2 px adentro.
+    const rects = boxes.map((b) => ({
+      b,
+      l: b.offsetLeft + 2,
+      t: b.offsetTop + 2,
+      r: b.offsetLeft + b.offsetWidth - 2,
+      bt: b.offsetTop + b.offsetHeight - 2,
+    }));
+    const minX = Math.min(...rects.map((r) => r.l));
+    const minY = Math.min(...rects.map((r) => r.t));
+    const maxX = Math.max(...rects.map((r) => r.r));
+    const maxY = Math.max(...rects.map((r) => r.bt));
+    const nw = Math.max(50, Math.round(maxX - minX + pad * 2));
+    const nh = Math.max(50, Math.round(maxY - minY + pad * 2));
+    this.busy = true;
+    rects.forEach(({ b }) => {
+      b.style.left = `${b.offsetLeft - minX + pad}px`;
+      b.style.top = `${b.offsetTop - minY + pad}px`;
+    });
+    this.applySize(page, nw, nh, 'design', true);
+    this.busy = false;
+    this.updatePageNumbers();
+    this.commitNow();
+    this.emitPageInfo();
+  }
+
+  /** Lienzo del tamaño real de la imagen más grande de la hoja; la imagen lo llena justo. */
+  fitCanvasToImage() {
+    const page = this.getActivePage();
+    const img = page ? this.largestImage(page) : null;
+    if (!page || !img) {
+      this.listeners.onError?.('Esta hoja no tiene una imagen suelta para ajustar el lienzo.');
+      return;
+    }
+    const ar = parseFloat(img.dataset.ar || '') || img.offsetWidth / Math.max(img.offsetHeight, 1);
+    let nw = parseFloat(img.dataset.natW || '') || img.offsetWidth;
+    let nh = nw / ar;
+    const big = Math.max(nw, nh);
+    if (big > 4000) {
+      nw = (nw * 4000) / big;
+      nh = (nh * 4000) / big;
+    }
+    nw = Math.round(nw);
+    nh = Math.round(nh);
+    const ow = page.offsetWidth;
+    const oh = page.offsetHeight;
+    this.busy = true;
+    const crop = this.captureCrop(img);
+    this.dropEmptyCaption(img);
+    this.applySize(page, nw, nh, 'design', true);
+    this.scaleBoxes(page, ow, oh, nw, nh);
+    img.style.transform = '';
+    img.dataset.rotation = '0';
+    // +4 px: la caja tiene 2 px de borde transparente por lado.
+    img.style.left = '-2px';
+    img.style.top = '-2px';
+    img.style.width = `${nw + 4}px`;
+    img.style.height = `${nh + 4}px`;
+    if (crop) this.rescaleCrop(img, crop);
+    this.applyBoxRadius(img);
+    this.syncLinkedCaption(img);
+    this.busy = false;
+    this.updatePageNumbers();
+    this.commitNow();
+    this.emitPageInfo();
+  }
+
+  /** Acomoda la imagen más grande al lienzo: 'cover' llena (recorta lo que sobra), 'contain' la muestra entera. */
+  fitImageToCanvas(mode: 'cover' | 'contain') {
+    const page = this.getActivePage();
+    const img = page ? this.largestImage(page) : null;
+    if (!page || !img) {
+      this.listeners.onError?.('Esta hoja no tiene una imagen suelta para ajustar.');
+      return;
+    }
+    const W = page.clientWidth;
+    const H = page.clientHeight;
+    const ar = parseFloat(img.dataset.ar || '') || img.offsetWidth / Math.max(img.offsetHeight, 1);
+    this.busy = true;
+    this.dropEmptyCaption(img);
+    this.clearCropData(img);
+    img.style.transform = '';
+    img.dataset.rotation = '0';
+    if (mode === 'contain') {
+      let w = W;
+      let h = W / ar;
+      if (h > H) {
+        h = H;
+        w = H * ar;
+      }
+      img.style.left = `${(W - w) / 2 - 2}px`;
+      img.style.top = `${(H - h) / 2 - 2}px`;
+      img.style.width = `${w + 4}px`;
+      img.style.height = `${h + 4}px`;
+    } else {
+      img.style.left = '-2px';
+      img.style.top = '-2px';
+      img.style.width = `${W + 4}px`;
+      img.style.height = `${H + 4}px`;
+      const vw = W;
+      const vh = H;
+      const k = Math.max(vw, vh * ar);
+      const cw = k;
+      const ch = k / ar;
+      img.dataset.cropW = String(cw);
+      img.dataset.cropH = String(ch);
+      img.dataset.cropX = String((vw - cw) / 2);
+      img.dataset.cropY = String((vh - ch) / 2);
+      this.applyCropStyle(img);
+    }
+    this.applyBoxRadius(img);
+    this.syncLinkedCaption(img);
+    this.busy = false;
+    this.commitNow();
+  }
+
+  // ---------- Guías: imán y cuadrícula ----------
+
+  setSnap(on: boolean) {
+    this.snapEnabled = on;
+    this.emitPageInfo();
+  }
+
+  setGrid(on: boolean) {
+    this.gridEnabled = on;
+    this.pagesWrapper.classList.toggle('show-grid', on);
+    this.emitPageInfo();
+  }
+
+  /** Líneas a las que se pega un elemento al moverlo: bordes, centro, márgenes, otros elementos y cuadrícula. */
+  private snapTargets(page: HTMLElement, box: HTMLElement) {
+    const W = page.clientWidth;
+    const H = page.clientHeight;
+    const cs = getComputedStyle(page);
+    const xs: number[] = [0, W / 2, W];
+    const ys: number[] = [0, H / 2, H];
+    const pl = parseFloat(cs.paddingLeft) || 0;
+    const pr = parseFloat(cs.paddingRight) || 0;
+    const pt = parseFloat(cs.paddingTop) || 0;
+    const pb = parseFloat(cs.paddingBottom) || 0;
+    if (pl > 0) xs.push(pl);
+    if (pr > 0) xs.push(W - pr);
+    if (pt > 0) ys.push(pt);
+    if (pb > 0) ys.push(H - pb);
+    const skip = new Set<HTMLElement>([box]);
+    const cap = this.getLinkedCaption(box);
+    if (cap) skip.add(cap);
+    page.querySelectorAll<HTMLElement>(':scope > .floating-box').forEach((o) => {
+      if (skip.has(o)) return;
+      xs.push(o.offsetLeft, o.offsetLeft + o.offsetWidth / 2, o.offsetLeft + o.offsetWidth);
+      ys.push(o.offsetTop, o.offsetTop + o.offsetHeight / 2, o.offsetTop + o.offsetHeight);
+    });
+    return { xs: this.snapEnabled ? xs : [], ys: this.snapEnabled ? ys : [] };
+  }
+
+  /** Mejor ajuste del borde izquierdo/centro/derecho (o superior/centro/inferior) a una línea cercana. */
+  private snapAxis(start: number, size: number, lines: number[]): { delta: number; line: number } | null {
+    const th = 6 / this.zoom;
+    let best: { delta: number; line: number } | null = null;
+    const refs = [start, start + size / 2, start + size];
+    for (const ref of refs) {
+      const candidates = this.gridEnabled ? [...lines, Math.round(ref / 50) * 50] : lines;
+      for (const line of candidates) {
+        const d = line - ref;
+        if (Math.abs(d) < th && (!best || Math.abs(d) < Math.abs(best.delta))) best = { delta: d, line };
+      }
+    }
+    return best;
+  }
+
+  private showSnapLines(page: HTMLElement, x: number | null, y: number | null) {
+    const ensure = (cls: string) => {
+      let el = page.querySelector<HTMLElement>(`:scope > .snap-line.${cls}`);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = `snap-line ${cls}`;
+        page.appendChild(el);
+      }
+      return el;
+    };
+    const v = ensure('snap-v');
+    const h = ensure('snap-h');
+    v.style.display = x === null ? 'none' : 'block';
+    h.style.display = y === null ? 'none' : 'block';
+    if (x !== null) v.style.left = `${x}px`;
+    if (y !== null) h.style.top = `${y}px`;
+  }
+
+  // ---------- Borde de sticker (contorno de color alrededor de la figura) ----------
+
+  /**
+   * Dibuja un contorno (y sombra opcional) alrededor de la figura de una imagen
+   * con transparencia, como un sticker. Es real (se hornea en la imagen), así
+   * sale en el PNG. `null` lo quita y devuelve la imagen original.
+   */
+  async setStickerBorder(opts: { width: number; color: string; shadow: boolean } | null) {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'image') return;
+    const img = box.querySelector<HTMLImageElement>('img');
+    if (!img) return;
+    if (box.dataset.cropW) {
+      this.listeners.onError?.('Quita el recorte de la imagen antes de ponerle borde de sticker.');
+      return;
+    }
+    const id = box.dataset.fbId || '';
+    const curPad = parseFloat(box.dataset.stickerPad || '0') || 0;
+    let orig = this.stickerOrig.get(id);
+    if (!orig) {
+      if (curPad > 0) {
+        this.listeners.onError?.('No se puede cambiar el borde de esta copia. Quita la imagen y vuelve a subirla.');
+        return;
+      }
+      orig = img.src;
+      this.stickerOrig.set(id, orig);
+    }
+    this.busy = true;
+    // 1) Volver al estado original
+    if (curPad > 0) {
+      box.style.left = `${box.offsetLeft + curPad}px`;
+      box.style.top = `${box.offsetTop + curPad}px`;
+      box.style.width = `${box.offsetWidth - curPad * 2}px`;
+      box.style.height = `${box.offsetHeight - curPad * 2}px`;
+      img.src = orig;
+      delete box.dataset.stickerPad;
+    }
+    if (!opts) {
+      box.dataset.ar = String(box.offsetWidth / Math.max(box.offsetHeight, 1));
+      this.syncLinkedCaption(box);
+      this.busy = false;
+      this.commitNow();
+      return;
+    }
+    // 2) Dibujar el contorno sobre la imagen original
+    const nat = await loadImageNaturalSize(orig);
+    const contentW = Math.max(box.clientWidth, 1);
+    const k = nat.w / contentW; // px naturales por px de pantalla
+    const rN = Math.max(1, opts.width * k);
+    const padD = opts.width + (opts.shadow ? 8 : 0);
+    const padN = Math.ceil(padD * k);
+    const source = new Image();
+    await new Promise<void>((res, rej) => {
+      source.onload = () => res();
+      source.onerror = () => rej(new Error('No se pudo leer la imagen'));
+      source.src = orig as string;
+    });
+    const W = nat.w + padN * 2;
+    const H = nat.h + padN * 2;
+    const sil = document.createElement('canvas');
+    sil.width = nat.w;
+    sil.height = nat.h;
+    const sctx = sil.getContext('2d')!;
+    sctx.drawImage(source, 0, 0, nat.w, nat.h);
+    sctx.globalCompositeOperation = 'source-in';
+    sctx.fillStyle = opts.color;
+    sctx.fillRect(0, 0, nat.w, nat.h);
+
+    const dil = document.createElement('canvas');
+    dil.width = W;
+    dil.height = H;
+    const dctx = dil.getContext('2d')!;
+    for (const r of [rN, rN * 0.66, rN * 0.33]) {
+      for (let a = 0; a < 360; a += 10) {
+        const rad = (a * Math.PI) / 180;
+        dctx.drawImage(sil, padN + Math.cos(rad) * r, padN + Math.sin(rad) * r);
+      }
+    }
+    dctx.drawImage(sil, padN, padN);
+
+    const out = document.createElement('canvas');
+    out.width = W;
+    out.height = H;
+    const octx = out.getContext('2d')!;
+    if (opts.shadow) {
+      octx.shadowColor = 'rgba(0,0,0,0.45)';
+      octx.shadowBlur = 5 * k;
+      octx.shadowOffsetY = 2.5 * k;
+    }
+    octx.drawImage(dil, 0, 0);
+    octx.shadowColor = 'transparent';
+    octx.drawImage(source, padN, padN, nat.w, nat.h);
+
+    const padReal = padN / k;
+    img.src = out.toDataURL('image/png');
+    box.style.left = `${box.offsetLeft - padReal}px`;
+    box.style.top = `${box.offsetTop - padReal}px`;
+    box.style.width = `${box.offsetWidth + padReal * 2}px`;
+    box.style.height = `${box.offsetHeight + padReal * 2}px`;
+    box.dataset.stickerPad = String(padReal);
+    box.dataset.ar = String(W / H);
+    this.syncLinkedCaption(box);
+    this.busy = false;
+    this.commitNow();
+    this.publishToolbarState();
+  }
+
   // ===================== HISTORIAL (deshacer / rehacer) =====================
 
   private serializeState(): string {
     const clone = this.pagesWrapper.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.margin-guide, .page-folio').forEach((e) => e.remove());
+    clone.querySelectorAll('.margin-guide, .page-folio, .snap-line').forEach((e) => e.remove());
     clone.querySelectorAll('.box-selected').forEach((e) => e.classList.remove('box-selected'));
     clone.querySelectorAll('.page-active').forEach((e) => e.classList.remove('page-active'));
     clone.querySelectorAll('[data-initialized]').forEach((e) => e.removeAttribute('data-initialized'));
@@ -2324,7 +2856,7 @@ export class DocumentEditorEngine {
     if (this.folioCache.size > 300) this.folioCache.clear();
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
-      const text = folioText(i, pages.length, cfg);
+      const text = page.dataset.kind === 'design' ? null : folioText(i, pages.length, cfg);
       let img = page.querySelector<HTMLImageElement>(':scope > .page-folio');
       if (!text) {
         img?.remove();
@@ -2355,9 +2887,33 @@ export class DocumentEditorEngine {
   // ===================== EXPORTACIÓN A PDF =====================
 
   async exportToPDF(): Promise<void> {
+    await this.exportDocument({ format: 'pdf', scope: 'all', scale: 2 });
+  }
+
+  private saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  /**
+   * Exporta a PDF (cada hoja con su propio tamaño) o a imagen PNG/JPG. En PNG,
+   * una hoja con fondo transparente sale transparente. Con varias hojas, las
+   * imágenes salen juntas en un ZIP.
+   */
+  async exportDocument(opts: ExportOptions): Promise<void> {
+    const allPages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    const pages = opts.scope === 'page' ? allPages.filter((p) => p === this.getActivePage()) : allPages;
+    if (!pages.length) return;
+    const label = opts.format === 'pdf' ? 'PDF' : opts.format.toUpperCase();
     this.listeners.onLoadingChange?.({
       show: true,
-      title: 'Exportando PDF de Alta Resolución',
+      title: `Exportando ${label}`,
       status: 'Renderizando páginas e imágenes...',
     });
 
@@ -2365,7 +2921,7 @@ export class DocumentEditorEngine {
     const activePage = this.activePage;
     activePage?.classList.remove('page-active');
     const chromeEls = this.pagesWrapper.querySelectorAll<HTMLElement>(
-      '[data-page-toolbar], .floating-box-handle, .floating-box-ctrl, .floating-box-rotate, .margin-guide'
+      '[data-page-toolbar], .floating-box-handle, .floating-box-ctrl, .floating-box-rotate, .margin-guide, .snap-line'
     );
     const prevVisibility: string[] = [];
     chromeEls.forEach((el, i) => {
@@ -2378,29 +2934,55 @@ export class DocumentEditorEngine {
     this.busy = true;
 
     try {
-      const pages = this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page');
-      const orientationOf = (page: HTMLElement): PageOrientation =>
-        page.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
-      const firstOrientation = pages[0] ? orientationOf(pages[0]) : 'portrait';
-      const pdf = new jsPDF(firstOrientation === 'landscape' ? 'l' : 'p', 'mm', 'a4');
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        const orientation = orientationOf(page);
-        const { w, h } = PAGE_MM[orientation];
-        const canvas = await html2canvas(page, {
-          scale: 2,
+      const render = async (page: HTMLElement) => {
+        const s = Math.max(0.25, Math.min(opts.scale, 8000 / Math.max(page.offsetWidth, page.offsetHeight)));
+        return html2canvas(page, {
+          scale: s,
           useCORS: true,
           logging: false,
-          backgroundColor: '#ffffff',
-          windowWidth: page.scrollWidth,
+          backgroundColor: opts.format === 'png' ? null : '#ffffff',
+          windowWidth: Math.max(page.scrollWidth, page.offsetWidth),
+          windowHeight: Math.max(page.scrollHeight, page.offsetHeight),
         });
-        if (i > 0) pdf.addPage('a4', orientation === 'landscape' ? 'l' : 'p');
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, w, h);
+      };
+      const stamp = Date.now();
+
+      if (opts.format === 'pdf') {
+        const mm = (px: number) => (px * 25.4) / 96;
+        const dims = (p: HTMLElement) => ({ w: mm(p.offsetWidth), h: mm(p.offsetHeight) });
+        const first = dims(pages[0]);
+        const pdf = new jsPDF({
+          orientation: first.w > first.h ? 'l' : 'p',
+          unit: 'mm',
+          format: [first.w, first.h],
+        });
+        for (let i = 0; i < pages.length; i++) {
+          const { w, h } = dims(pages[i]);
+          const canvas = await render(pages[i]);
+          if (i > 0) pdf.addPage([w, h], w > h ? 'l' : 'p');
+          pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, w, h);
+        }
+        pdf.save(`Documento_Ensamblado_${stamp}.pdf`);
+      } else {
+        const mime = opts.format === 'png' ? 'image/png' : 'image/jpeg';
+        const toBlob = (c: HTMLCanvasElement) =>
+          new Promise<Blob>((resolve, reject) =>
+            c.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo generar la imagen'))), mime, 0.95)
+          );
+        const ext = opts.format;
+        if (pages.length === 1) {
+          this.saveBlob(await toBlob(await render(pages[0])), `lienzo_${stamp}.${ext}`);
+        } else {
+          const zip = new JSZip();
+          for (let i = 0; i < pages.length; i++) {
+            zip.file(`lienzo_${String(i + 1).padStart(2, '0')}.${ext}`, await toBlob(await render(pages[i])));
+          }
+          this.saveBlob(await zip.generateAsync({ type: 'blob' }), `lienzos_${stamp}.zip`);
+        }
       }
-      pdf.save(`Documento_Ensamblado_${Date.now()}.pdf`);
     } catch (error) {
-      console.error('Error al exportar a PDF:', error);
-      this.listeners.onError?.('Ocurrió un error al generar el archivo PDF.');
+      console.error('Error al exportar:', error);
+      this.listeners.onError?.('Ocurrió un error al generar el archivo.');
     } finally {
       chromeEls.forEach((el, i) => {
         el.style.visibility = prevVisibility[i] || '';
@@ -2412,4 +2994,5 @@ export class DocumentEditorEngine {
       this.listeners.onLoadingChange?.({ show: false, title: '', status: '' });
     }
   }
+
 }
