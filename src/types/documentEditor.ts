@@ -99,4 +99,27 @@ export interface DocumentEditorEngineListeners {
   onError?: (message: string) => void;
   onHistoryChange?: (h: { canUndo: boolean; canRedo: boolean }) => void;
   onZoomChange?: (percent: number) => void;
+  onPageInfoChange?: (info: PageInfo | null) => void;
+}
+
+/** Datos de la hoja/lienzo activo, publicados por el motor para el panel de lienzo. */
+export interface PageInfo {
+  w: number;
+  h: number;
+  kind: 'doc' | 'design';
+  /** 'white', 'transparent' o un color #rrggbb. */
+  bg: string;
+  /** En lienzos de diseño: si se muestran título, texto y pie de página. */
+  hf: boolean;
+  pdf: boolean;
+  images: number;
+  snap: boolean;
+  grid: boolean;
+}
+
+export interface ExportOptions {
+  format: 'pdf' | 'png' | 'jpg';
+  scope: 'page' | 'all';
+  /** Multiplicador de resolución: 1 = tamaño exacto del lienzo en píxeles. */
+  scale: number;
 }
