@@ -1,3 +1,5 @@
+import colors from 'tailwindcss/colors';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -14,7 +16,8 @@ export default {
         ink: '#0F172A',
         'ink-soft': '#5B6270',
         // Azul — nuevo color principal (botones, selecciones, estados activos)
-        blue: '#2563EB',
+        // Se conserva la escala completa (blue-400, blue-600…) y `blue` solo sigue valiendo #2563EB.
+        blue: { ...colors.blue, DEFAULT: '#2563EB' },
         'blue-dark': '#1D4ED8',
         'blue-light': '#EAF1FF',
         // Dorado — se conserva SOLO para detalles mínimos (logo, botón "Nueva plantilla")
