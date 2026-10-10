@@ -41,7 +41,27 @@ export type ArrangeLayoutId =
   | 'flex';
 
 /** Tipo de elemento flotante que se puede colocar sobre una hoja. */
-export type FloatingBoxType = 'image' | 'text' | 'caption';
+export type FloatingBoxType = 'image' | 'text' | 'caption' | 'shape' | 'frame';
+
+/** Geometría de una forma o marco. */
+export type ShapeKind = 'rect' | 'rounded' | 'ellipse';
+
+/** Propiedades editables de una forma o marco (se muestran en la barra superior). */
+export interface ShapeState {
+  kind: ShapeKind;
+  /** Si la forma está rellena (si no, solo se ve el borde). */
+  fillOn: boolean;
+  fill: string;
+  fillOpacity: number;
+  borderColor: string;
+  borderWidth: number;
+  /** Lados con borde: [arriba, derecha, abajo, izquierda]. */
+  sides: [boolean, boolean, boolean, boolean];
+  /** Radio de esquinas como % del lado menor (0–50). */
+  radiusPct: number;
+  /** Solo marcos: ya tiene una imagen dentro. */
+  frameFilled: boolean;
+}
 
 /** A qué se le está mostrando la barra de herramientas contextual. */
 export type ToolbarTargetKind = 'text' | 'box' | null;
@@ -62,6 +82,10 @@ export interface ToolbarState {
   cropping: boolean;
   /** Si la imagen seleccionada tiene un recorte aplicado (aunque no esté en modo recorte ahora). */
   hasCrop: boolean;
+  /** Esquinas redondeadas (% del lado menor) de una imagen; null si no aplica. */
+  imageRadiusPct: number | null;
+  /** Datos de la forma o marco seleccionado; null si no es ninguno. */
+  shape: ShapeState | null;
 }
 
 /** Callbacks con los que el motor avisa a React de cambios de estado. */
