@@ -8,10 +8,14 @@ import {
   FileDown,
   SlidersHorizontal,
   LayoutTemplate,
-  PenTool,
+  Shapes,
+  Frame,
+  Hash,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
-import type { ArrangeLayoutId } from '../../types/documentEditor';
+import { ShapesMenu } from './ShapesMenu';
+import { SignatureIcon } from './icons';
+import type { ArrangeLayoutId, ShapeKind } from '../../types/documentEditor';
 
 interface IconRailProps {
   onImportClick: () => void;
@@ -25,10 +29,14 @@ interface IconRailProps {
   formatPanelOpen: boolean;
   imageCount: number;
   onArrange: (layout: ArrangeLayoutId, perPage: number) => void;
+  onInsertShape: (kind: ShapeKind, size: { w: number; h: number }, filled: boolean) => void;
+  onInsertFrame: (kind: ShapeKind, size: { w: number; h: number }) => void;
+  onOpenFolio: () => void;
+  folioActive: boolean;
 }
 
 const btn =
-  'flex flex-col items-center gap-1 py-3 text-slate-400 hover:text-white hover:bg-slate-800/70 rounded-lg mx-1 transition';
+  'flex flex-col items-center gap-1 py-3 text-slate-400 hover:text-white hover:bg-slate-800/70 rounded-lg mx-1 transition max-md:shrink-0 max-md:w-[62px] max-md:py-2 max-md:mx-0';
 
 /** Riel de iconos: accesos directos a las acciones más usadas. */
 export function IconRail({
@@ -43,15 +51,21 @@ export function IconRail({
   formatPanelOpen,
   imageCount,
   onArrange,
+  onInsertShape,
+  onInsertFrame,
+  onOpenFolio,
+  folioActive,
 }: IconRailProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const arrangeBtnRef = useRef<HTMLButtonElement>(null);
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const [arrangeTop, setArrangeTop] = useState(0);
+  const [shapesMode, setShapesMode] = useState<'shapes' | 'frames' | null>(null);
+  const [shapesTop, setShapesTop] = useState(0);
   const canArrange = imageCount >= 2;
 
   return (
-    <nav className="w-[72px] bg-slate-950 border-r border-slate-800 flex flex-col items-stretch py-3 gap-1 print:hidden shrink-0 overflow-y-auto">
+    <nav className="md:w-[72px] bg-slate-950 md:border-r max-md:border-t border-slate-800 flex md:flex-col max-md:flex-row items-stretch md:py-3 max-md:py-1 max-md:px-1 gap-1 print:hidden shrink-0 md:overflow-y-auto max-md:overflow-x-auto max-md:pb-[max(0.25rem,env(safe-area-inset-bottom))]">
       <button type="button" onClick={onImportClick} title="Importar archivos" className={btn}>
         <UploadCloud className="w-5 h-5" />
         <span className="text-[10px] leading-none">Subir</span>
@@ -97,6 +111,32 @@ export function IconRail({
         )}
       </button>
 
+      <button
+        type="button"
+        onClick={(e) => {
+          setShapesTop(e.currentTarget.getBoundingClientRect().top);
+          setShapesMode((m) => (m === 'shapes' ? null : 'shapes'));
+        }}
+        title="Agregar formas"
+        className={`${btn} ${shapesMode === 'shapes' ? '!text-blue-400' : ''}`}
+      >
+        <Shapes className="w-5 h-5" />
+        <span className="text-[10px] leading-none">Formas</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          setShapesTop(e.currentTarget.getBoundingClientRect().top);
+          setShapesMode((m) => (m === 'frames' ? null : 'frames'));
+        }}
+        title="Agregar marcos para imágenes"
+        className={`${btn} ${shapesMode === 'frames' ? '!text-blue-400' : ''}`}
+      >
+        <Frame className="w-5 h-5" />
+        <span className="text-[10px] leading-none">Marcos</span>
+      </button>
+
       <button type="button" onClick={onAddTextBox} title="Agregar cuadro de texto" className={btn}>
         <Type className="w-5 h-5" />
         <span className="text-[10px] leading-none">Texto</span>
@@ -108,8 +148,13 @@ export function IconRail({
       </button>
 
       <button type="button" onClick={onOpenSignature} title="Agregar firma" className={btn}>
-        <PenTool className="w-5 h-5" />
+        <SignatureIcon className="w-5 h-5" />
         <span className="text-[10px] leading-none">Firma</span>
+      </button>
+
+      <button type="button" onClick={onOpenFolio} title="Foliado (numerar páginas)" className={`${btn} ${folioActive ? '!text-blue-400' : ''}`}>
+        <Hash className="w-5 h-5" />
+        <span className="text-[10px] leading-none">Foliado</span>
       </button>
 
       <button type="button" onClick={onOpenOrganizer} title="Organizar páginas" className={btn}>
@@ -117,19 +162,19 @@ export function IconRail({
         <span className="text-[10px] leading-none">Organizar</span>
       </button>
 
-      <div className="my-1 border-t border-slate-800 mx-2" />
+      <div className="my-1 border-t border-slate-800 mx-2 max-md:hidden" />
 
       <button
         type="button"
         onClick={onExportPDF}
         title="Exportar a PDF"
-        className="flex flex-col items-center gap-1 py-3 text-emerald-400 hover:text-white hover:bg-emerald-600/30 rounded-lg mx-1 transition"
+        className="flex flex-col items-center gap-1 py-3 text-emerald-400 hover:text-white hover:bg-emerald-600/30 rounded-lg mx-1 transition max-md:shrink-0 max-md:w-[62px] max-md:py-2 max-md:mx-0"
       >
         <FileDown className="w-5 h-5" />
         <span className="text-[10px] leading-none">Exportar</span>
       </button>
 
-      <div className="my-1 border-t border-slate-800 mx-2" />
+      <div className="my-1 border-t border-slate-800 mx-2 max-md:hidden" />
 
       <button
         type="button"
@@ -140,6 +185,15 @@ export function IconRail({
         <SlidersHorizontal className="w-5 h-5" />
         <span className="text-[10px] leading-none">Formato</span>
       </button>
+
+      <ShapesMenu
+        open={shapesMode !== null}
+        mode={shapesMode ?? 'shapes'}
+        top={shapesTop}
+        onPickShape={onInsertShape}
+        onPickFrame={onInsertFrame}
+        onClose={() => setShapesMode(null)}
+      />
 
       <ArrangeMenu
         open={arrangeOpen && canArrange}

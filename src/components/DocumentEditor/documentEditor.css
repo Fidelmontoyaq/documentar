@@ -104,3 +104,53 @@ body.exporting .has-placeholder::before { content: none !important; }
 .floating-box.cropping .floating-box-content { cursor: move; }
 .floating-box.cropping .floating-box-ctrl { background: #f59e0b; border-color: #fff; }
 .floating-box.cropping .floating-box-content img { user-select: none; -webkit-user-drag: none; }
+
+/* ===== Recorte: el contenido necesita ser el contenedor de la imagen para que se recorte de verdad ===== */
+.floating-box-content { position: relative; }
+.floating-box-content img { max-width: none; }
+
+/* ===== Formas y marcos ===== */
+.shape-body { position: relative; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+.frame-slot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #64748b; font-size: 11px; text-align: center; padding: 8px; pointer-events: none; }
+.frame-body.has-img .frame-slot, .floating-box[data-has-img] .frame-slot { display: none; }
+body.exporting .frame-slot { display: none; }
+@media print { .frame-slot { display: none; } }
+.floating-box[data-type="shape"], .floating-box[data-type="frame"] { cursor: move; }
+.floating-box[data-type="shape"] .floating-box-content, .floating-box[data-type="frame"] .floating-box-content { overflow: visible; }
+.floating-box[data-type="frame"] .shape-body { overflow: hidden; }
+
+/* Folio dibujado sobre la hoja */
+.page-folio { display: block; }
+
+/* ===== Móvil / pantallas táctiles ===== */
+.floating-box.box-selected,
+.floating-box .floating-box-ctrl,
+.floating-box .floating-box-rotate,
+.floating-box .floating-box-handle { touch-action: none; }
+.floating-box { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.floating-box[data-type="text"], .floating-box[data-type="caption"] { -webkit-user-select: text; user-select: text; }
+#editorContainer { overscroll-behavior: contain; touch-action: pan-x pan-y; }
+
+@media (pointer: coarse) {
+  .floating-box-ctrl { width: 22px; height: 22px; }
+  .floating-box-ctrl.ctrl-nw { top: -12px; left: -12px; }
+  .floating-box-ctrl.ctrl-ne { top: -12px; right: -12px; }
+  .floating-box-ctrl.ctrl-sw { bottom: -12px; left: -12px; }
+  .floating-box-ctrl.ctrl-se { bottom: -12px; right: -12px; }
+  .floating-box-ctrl.ctrl-n, .floating-box-ctrl.ctrl-s { width: 40px; height: 16px; margin-left: -20px; }
+  .floating-box-ctrl.ctrl-n { top: -10px; } .floating-box-ctrl.ctrl-s { bottom: -10px; }
+  .floating-box-ctrl.ctrl-e, .floating-box-ctrl.ctrl-w { width: 16px; height: 40px; margin-top: -20px; }
+  .floating-box-ctrl.ctrl-e { right: -10px; } .floating-box-ctrl.ctrl-w { left: -10px; }
+  .floating-box-rotate { width: 28px; height: 28px; margin-left: -14px; top: -46px; font-size: 15px; }
+  .floating-box-rotate::before { bottom: -17px; height: 17px; }
+  .floating-box .floating-box-handle { padding: 6px 8px; top: -38px; }
+  .floating-box .floating-box-handle button { padding: 4px 8px; font-size: 13px; }
+  /* Los botones laterales de la hoja se ven solo en la hoja activa y dentro de la pantalla */
+  .a4-page [data-page-toolbar] { right: 6px !important; top: 6px !important; flex-direction: row !important; opacity: 0; pointer-events: none; }
+  .a4-page.page-active [data-page-toolbar] { opacity: .92; pointer-events: auto; }
+}
+
+/* Con zoom bajo (celular), los controladores se agrandan para seguir siendo fáciles de tocar */
+@media (pointer: coarse) {
+  .floating-box-ctrl, .floating-box-rotate { transform: scale(min(2.4, calc(1 / var(--z, 1)))); }
+}

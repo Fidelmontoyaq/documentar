@@ -4,6 +4,7 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff,
 } from 'lucide-react';
 import { groupedFontOptions } from '../../engine/fontCatalog';
 import type { ToolbarState } from '../../types/documentEditor';
@@ -31,6 +32,14 @@ interface ElementToolbarProps {
   onCaptionGapAll: () => void;
   onToggleCrop: () => void;
   onResetCrop: () => void;
+  onCropZoom: (direction: 1 | -1) => void;
+  onRadius: (pct: number) => void;
+  onShapeProps: (patch: Partial<{ fillOn: boolean; fill: string; fillOpacity: number; borderColor: string; borderWidth: number }>) => void;
+  onToggleSide: (index: number) => void;
+  onAllSides: (on: boolean) => void;
+  onPickFrameImage: () => void;
+  onClearFrameImage: () => void;
+  onFrameFit: (mode: 'cover' | 'contain') => void;
 }
 
 /**
@@ -44,12 +53,16 @@ export function ElementToolbar({
   onUndo, onRedo, onCopy, onPaste,
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
-  onToggleCrop, onResetCrop,
+  onToggleCrop, onResetCrop, onCropZoom, onRadius, onShapeProps, onToggleSide, onAllSides,
+  onPickFrameImage, onClearFrameImage, onFrameFit,
 }: ElementToolbarProps) {
   const { recent, rest } = groupedFontOptions(recentFonts);
   const isBox = state?.isBox ?? false;
   const isImage = state?.boxType === 'image';
-  const isTextual = !!state && !isImage; // texto de la hoja, cuadro de texto o pie de foto
+  const isShapeLike = state?.boxType === 'shape' || state?.boxType === 'frame';
+  const isFrame = state?.boxType === 'frame';
+  const sh = state?.shape ?? null;
+  const isTextual = !!state && !isImage && !isShapeLike; // texto de la hoja, cuadro de texto o pie de foto
   const keep = (e: React.MouseEvent) => e.preventDefault(); // no pierde la selección del texto
   const b = (title: string, onClick: () => void, icon: React.ReactNode, disabled = false, extra = '') => (
     <button type="button" className={`et-btn ${extra}`} title={title} onMouseDown={keep} onClick={onClick} disabled={disabled}>
@@ -60,7 +73,7 @@ export function ElementToolbar({
   return (
     <div
       data-element-toolbar
-      className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800 px-3 py-2 flex items-center gap-1 flex-wrap min-h-[52px]"
+      className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800 px-2 md:px-3 py-2 flex items-center gap-1 md:flex-wrap overflow-x-auto md:overflow-visible min-h-[52px] [&>*]:shrink-0"
     >
       {b('Deshacer (Ctrl+Z)', onUndo, <Undo2 className="w-4 h-4" />, !history.canUndo)}
       {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
@@ -120,7 +133,7 @@ export function ElementToolbar({
         </>
       )}
 
-      {state?.isBox && state.boxType !== 'image' && (
+      {state?.isBox && (state.boxType === 'text' || state.boxType === 'caption') && (
         <>
           <div className="et-sep" />
           <label className="et-btn cursor-pointer gap-1" title="Pintar la casilla de texto">
@@ -177,12 +190,144 @@ export function ElementToolbar({
             <span>{state?.cropping ? 'Listo' : 'Recortar'}</span>
           </button>
           {state?.cropping && (
-            <span className="text-[11px] text-amber-300 px-1 hidden sm:inline">
-              Arrastra la imagen para moverla, rueda del mouse para acercar, Esc para terminar
-            </span>
+            <>
+              {b('Acercar imagen', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
+              {b('Alejar imagen', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
+              <span className="text-[11px] text-amber-300 px-1 hidden lg:inline">
+                Arrastra la imagen para moverla; los bordes de la caja recortan; Esc para terminar
+              </span>
+            </>
           )}
           {state?.hasCrop && !state.cropping && (
             b('Quitar recorte', onResetCrop, <RotateCcw className="w-4 h-4" />)
+          )}
+          <div className="et-sep" />
+          <span className="text-[11px] text-slate-400 px-1">Esquinas</span>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            value={state?.imageRadiusPct ?? 0}
+            onChange={(e) => onRadius(Number(e.target.value))}
+            className="zoom-range !w-20"
+            title="Redondear las esquinas de la imagen"
+          />
+          <span className="text-[11px] text-slate-500 w-8">{Math.round(state?.imageRadiusPct ?? 0)}%</span>
+        </>
+      )}
+
+      {isShapeLike && sh && (
+        <>
+          <div className="et-sep" />
+          {isFrame && (
+            <>
+              <button type="button" className="et-btn gap-1" title="Elegir la imagen del marco" onMouseDown={keep} onClick={onPickFrameImage}>
+                <ImagePlus className="w-4 h-4" /> <span>{sh.frameFilled ? 'Cambiar' : 'Imagen'}</span>
+              </button>
+              {sh.frameFilled && (
+                <>
+                  <button
+                    type="button"
+                    className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`}
+                    title="Mover y acercar la imagen dentro del marco (tecla C)"
+                    onMouseDown={keep}
+                    onClick={onToggleCrop}
+                  >
+                    <Crop className="w-4 h-4" /> <span>{state?.cropping ? 'Listo' : 'Ajustar'}</span>
+                  </button>
+                  {state?.cropping && (
+                    <>
+                      {b('Acercar', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
+                      {b('Alejar', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
+                    </>
+                  )}
+                  {b('Llenar el marco', () => onFrameFit('cover'), <Maximize className="w-4 h-4" />)}
+                  {b('Mostrar entera', () => onFrameFit('contain'), <Minimize className="w-4 h-4" />)}
+                  {b('Quitar imagen', onClearFrameImage, <ImageOff className="w-4 h-4" />)}
+                </>
+              )}
+              <div className="et-sep" />
+            </>
+          )}
+          <button
+            type="button"
+            className={`et-btn gap-1 ${sh.fillOn ? '!bg-slate-700 !text-white' : ''}`}
+            title={sh.fillOn ? 'Con relleno (clic para dejar solo el borde)' : 'Solo borde (clic para rellenar)'}
+            onMouseDown={keep}
+            onClick={() => onShapeProps({ fillOn: !sh.fillOn })}
+          >
+            <PaintBucket className="w-4 h-4" /> <span>{sh.fillOn ? 'Relleno' : 'Sin relleno'}</span>
+          </button>
+          <label className="et-btn cursor-pointer" title="Color de relleno">
+            <span className="w-4 h-4 rounded border border-slate-500" style={{ background: sh.fill }} />
+            <input type="color" className="hidden" value={sh.fill} onChange={(e) => onShapeProps({ fill: e.target.value, fillOn: true })} />
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(sh.fillOpacity * 100)}
+            onChange={(e) => onShapeProps({ fillOpacity: Number(e.target.value) / 100, fillOn: true })}
+            className="zoom-range !w-16"
+            title="Opacidad del relleno"
+          />
+          <div className="et-sep" />
+          <span className="text-[11px] text-slate-400 px-1">Borde</span>
+          <label className="et-btn cursor-pointer" title="Color del borde">
+            <span className="w-4 h-4 rounded border-2" style={{ borderColor: sh.borderColor }} />
+            <input type="color" className="hidden" value={sh.borderColor} onChange={(e) => onShapeProps({ borderColor: e.target.value })} />
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={60}
+            value={sh.borderWidth}
+            onChange={(e) => onShapeProps({ borderWidth: Number(e.target.value) || 0 })}
+            className="w-12 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1 px-1.5 outline-none"
+            title="Grosor del borde (px)"
+          />
+          <button
+            type="button"
+            className={`et-btn ${sh.sides.every(Boolean) ? '!bg-slate-700 !text-white' : ''}`}
+            title="Borde en todos los lados"
+            onMouseDown={keep}
+            onClick={() => onAllSides(true)}
+          >
+            <Square className="w-4 h-4" />
+          </button>
+          {(
+            [
+              ['Borde de arriba', PanelTop],
+              ['Borde derecho', PanelRight],
+              ['Borde de abajo', PanelBottom],
+              ['Borde izquierdo', PanelLeft],
+            ] as const
+          ).map(([label, Icon], i) => (
+            <button
+              key={label}
+              type="button"
+              className={`et-btn ${sh.sides[i] ? '!bg-blue-600 !text-white' : ''}`}
+              title={`${label} (clic para activar o quitar)`}
+              onMouseDown={keep}
+              onClick={() => onToggleSide(i)}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          ))}
+          {b('Sin bordes', () => onAllSides(false), <Ban className="w-4 h-4" />)}
+          {sh.kind !== 'ellipse' && (
+            <>
+              <div className="et-sep" />
+              <span className="text-[11px] text-slate-400 px-1">Esquinas</span>
+              <input
+                type="range"
+                min={0}
+                max={50}
+                value={sh.radiusPct}
+                onChange={(e) => onRadius(Number(e.target.value))}
+                className="zoom-range !w-20"
+              />
+            </>
           )}
         </>
       )}

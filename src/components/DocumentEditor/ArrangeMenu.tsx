@@ -44,7 +44,7 @@ export function ArrangeMenu({ open, top, imageCount, onSelect, onClose }: Arrang
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        className="fixed left-[80px] z-50 w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 print:hidden"
+        className="fixed left-[80px] z-50 w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 print:hidden max-md:left-2 max-md:right-2 max-md:w-auto max-md:!top-auto max-md:bottom-[76px] max-md:max-h-[70dvh] max-md:overflow-y-auto"
         style={{ top: Math.max(8, top) }}
       >
         <div className="flex items-center justify-between mb-2">

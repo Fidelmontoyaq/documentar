@@ -22,8 +22,8 @@ import {
   Layers,
   LayoutGrid,
   Rows,
-  PenTool,
 } from 'lucide-react';
+import { SignatureIcon } from './icons';
 import { groupedFontOptions } from '../../engine/fontCatalog';
 import type { ImagesPerPageMode, MarginSelectValue } from '../../types/documentEditor';
 
@@ -52,6 +52,7 @@ interface SidePanelProps {
   pageCount: number;
   onOpenOrganizer: () => void;
   onOpenCaptionGapAll: () => void;
+  onOpenFolio: () => void;
 }
 
 export function SidePanel({
@@ -79,12 +80,13 @@ export function SidePanel({
   pageCount,
   onOpenOrganizer,
   onOpenCaptionGapAll,
+  onOpenFolio,
 }: SidePanelProps) {
   const { recent, rest } = groupedFontOptions(recentFonts);
 
   return (
     <aside
-      className={`w-80 bg-slate-900 border-r border-slate-800 print:hidden shrink-0 overflow-y-auto ${
+      className={`w-80 max-md:fixed max-md:inset-0 max-md:z-[60] max-md:w-full bg-slate-900 border-r border-slate-800 print:hidden shrink-0 overflow-y-auto ${
         open ? 'flex flex-col' : 'hidden'
       }`}
     >
@@ -186,7 +188,14 @@ export function SidePanel({
             onClick={onOpenSignature}
             className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <PenTool className="w-3.5 h-3.5 text-amber-400" /> Agregar Firma
+            <SignatureIcon className="w-3.5 h-3.5 text-amber-400" /> Agregar Firma
+          </button>
+          <button
+            type="button"
+            onClick={onOpenFolio}
+            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Hash className="w-3.5 h-3.5 text-sky-400" /> Foliado de páginas
           </button>
         </div>
 

@@ -8,6 +8,7 @@ import { PageOrganizerModal } from './PageOrganizerModal';
 import { ElementToolbar } from './ElementToolbar';
 import { LoadingOverlay } from './LoadingOverlay';
 import { SignaturePad } from './SignaturePad';
+import { FolioModal } from './FolioModal';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
 
@@ -38,6 +39,8 @@ export function DocumentEditorApp() {
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
+  const [folioOpen, setFolioOpen] = useState(false);
+  const [folioActive, setFolioActive] = useState(false);
   const [imageMode, setImageMode] = useState<ImagesPerPageMode>('1');
   const [fontValue, setFontValue] = useState(DEFAULT_FONT);
   const [marginValue, setMarginValue] = useState<MarginSelectValue>(DEFAULT_MARGIN);
@@ -91,8 +94,8 @@ export function DocumentEditorApp() {
   };
 
     return (
-    <div className="doc-editor h-screen flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
-      <div className="flex flex-1 overflow-hidden">
+    <div className="doc-editor h-[100dvh] flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
+      <div className="flex flex-1 overflow-hidden md:flex-row flex-col-reverse">
         <IconRail
           onImportClick={() => multiFileInputRef.current?.click()}
           onAddImages={handleAddImages}
@@ -105,6 +108,10 @@ export function DocumentEditorApp() {
           formatPanelOpen={sidePanelOpen}
           imageCount={imageCount}
           onArrange={(layout, perPage) => engine?.arrangeImages(layout, perPage)}
+          onInsertShape={(kind, size, filled) => engine?.insertShape(kind, size, filled)}
+          onInsertFrame={(kind, size) => engine?.insertFrame(kind, size)}
+          onOpenFolio={() => setFolioOpen(true)}
+          folioActive={folioActive}
         />
 
         <SidePanel
@@ -135,6 +142,7 @@ export function DocumentEditorApp() {
           pageCount={pageCount}
           onOpenOrganizer={() => setOrganizerOpen(true)}
           onOpenCaptionGapAll={() => openGapDialog(gapValue)}
+          onOpenFolio={() => setFolioOpen(true)}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
@@ -158,6 +166,14 @@ export function DocumentEditorApp() {
             onCaptionReset={() => engine?.resetCaptionPlacement()}
             onToggleCrop={() => engine?.toggleCropMode()}
             onResetCrop={() => engine?.resetCrop()}
+            onCropZoom={(d) => engine?.cropZoomStep(d)}
+            onRadius={(pct) => engine?.setRadiusPct(pct)}
+            onShapeProps={(patch) => engine?.setShapeProps(patch)}
+            onToggleSide={(i) => engine?.toggleShapeSide(i)}
+            onAllSides={(on) => engine?.setShapeSides(on)}
+            onPickFrameImage={() => engine?.pickFrameImage()}
+            onClearFrameImage={() => engine?.clearFrameImage()}
+            onFrameFit={(mode) => engine?.frameFit(mode)}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
           <EditorCanvas
@@ -165,6 +181,7 @@ export function DocumentEditorApp() {
             pagesWrapperRef={pagesWrapperRef}
             zoom={zoom}
             onZoomChange={(p) => engine?.setZoom(p)}
+            onFit={() => engine?.fitToWidth()}
           />
         </div>
       </div>
@@ -231,6 +248,17 @@ export function DocumentEditorApp() {
         onConfirm={(dataUrl) => {
           void engine?.insertFloatingImage(dataUrl);
         }}
+      />
+
+      <FolioModal
+        open={folioOpen}
+        onClose={() => {
+          setFolioOpen(false);
+          setFolioActive(!!engine?.getFolioConfig().enabled);
+        }}
+        engine={engine}
+        pageCount={pageCount}
+        recentFonts={recentFonts}
       />
 
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
