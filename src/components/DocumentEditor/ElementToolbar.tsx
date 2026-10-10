@@ -4,9 +4,9 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, Sticker,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, Sticker, Scissors,
 } from 'lucide-react';
-import { groupedFontOptions } from '../../engine/fontCatalog';
+import { FontPicker } from './FontPicker';
 import { useState } from 'react';
 import { sizeLabel } from '../../engine/pageSizes';
 import type { PageInfo, ToolbarState } from '../../types/documentEditor';
@@ -45,6 +45,8 @@ interface ElementToolbarProps {
   pageInfo: PageInfo | null;
   onOpenCanvas: () => void;
   onSticker: (opts: { width: number; color: string; shadow: boolean } | null) => void;
+  onRemoveBg: () => void;
+  pdfEditOn?: boolean;
 }
 
 /**
@@ -59,13 +61,12 @@ export function ElementToolbar({
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
   onToggleCrop, onResetCrop, onCropZoom, onRadius, onShapeProps, onToggleSide, onAllSides,
-  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker,
+  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, pdfEditOn,
 }: ElementToolbarProps) {
   const [stickerOpen, setStickerOpen] = useState(false);
   const [stW, setStW] = useState(8);
   const [stColor, setStColor] = useState('#ffffff');
   const [stShadow, setStShadow] = useState(true);
-  const { recent, rest } = groupedFontOptions(recentFonts);
   const isBox = state?.isBox ?? false;
   const isImage = state?.boxType === 'image';
   const isShapeLike = state?.boxType === 'shape' || state?.boxType === 'frame';
@@ -103,31 +104,14 @@ export function ElementToolbar({
       <div className="et-sep" />
 
       {!state && (
-        <span className="text-xs text-slate-500 px-2">
-          Haz clic en un texto, cuadro de texto o imagen para ver sus opciones
+        <span className={`text-xs px-2 ${pdfEditOn ? 'text-blue-300' : 'text-slate-500'}`}>
+          {pdfEditOn ? 'Editar PDF: toca el texto del PDF que quieres cambiar' : 'Haz clic en un texto, cuadro de texto o imagen para ver sus opciones'}
         </span>
       )}
 
       {isTextual && (
         <>
-          <select
-            value={state?.fontFamily ?? ''}
-            onChange={(e) => onApplyFont(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1.5 px-1.5 outline-none max-w-[150px]"
-          >
-            {recent.length > 0 && (
-              <optgroup label="Usadas recientemente">
-                {recent.map((f) => (
-                  <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
-                ))}
-              </optgroup>
-            )}
-            <optgroup label={recent.length > 0 ? 'Todas las demás' : 'Todas las fuentes'}>
-              {rest.map((f) => (
-                <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
-              ))}
-            </optgroup>
-          </select>
+          <FontPicker compact value={state?.fontFamily ?? ''} recentFonts={recentFonts} onChange={onApplyFont} />
           <select
             value={state?.fontSize ?? '16'}
             onChange={(e) => onApplyFontSize(e.target.value)}
@@ -233,6 +217,15 @@ export function ElementToolbar({
             title="Redondear las esquinas de la imagen"
           />
           <span className="text-[11px] text-slate-500 w-8">{Math.round(state?.imageRadiusPct ?? 0)}%</span>
+          <button
+            type="button"
+            className="et-btn gap-1"
+            title="Quitar el fondo de la imagen (IA, varita o pincel)"
+            onMouseDown={keep}
+            onClick={onRemoveBg}
+          >
+            <Scissors className="w-4 h-4" /> <span>Quitar fondo</span>
+          </button>
           <button
             type="button"
             className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`}

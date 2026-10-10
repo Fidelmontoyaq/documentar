@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { PanelBottomClose, PanelBottomOpen } from 'lucide-react';
 import { useDocumentEditorEngine } from '../../hooks/useDocumentEditorEngine';
 import { readFileAsDataURL } from '../../engine/fileUtils';
+import { FONT_FILE_RE, addFontFiles } from '../../engine/fontLibrary';
 import { IconRail } from './IconRail';
-import { SidePanel } from './SidePanel';
+import { SidePanel, type PanelMode } from './SidePanel';
 import { EditorCanvas } from './EditorCanvas';
 import { PageOrganizerModal } from './PageOrganizerModal';
 import { ElementToolbar } from './ElementToolbar';
@@ -11,6 +13,7 @@ import { SignaturePad } from './SignaturePad';
 import { FolioModal } from './FolioModal';
 import { CanvasPanel } from './CanvasPanel';
 import { ExportDialog } from './ExportDialog';
+import { RemoveBgDialog } from './RemoveBgDialog';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
 
@@ -34,12 +37,17 @@ export function DocumentEditorApp() {
     loading,
     errorMessage,
     clearError,
+    notice,
+    setNotice,
+    pdfEditOn,
     recentFonts,
   } = useDocumentEditorEngine();
 
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
-  const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [panel, setPanel] = useState<PanelMode | null>(null);
+  const [menuHidden, setMenuHidden] = useState(false);
+  const [bgEdit, setBgEdit] = useState<{ id: string; src: string } | null>(null);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [folioOpen, setFolioOpen] = useState(false);
@@ -53,6 +61,12 @@ export function DocumentEditorApp() {
   const [gapDialog, setGapDialog] = useState<{ pageCount: number; docCount: number } | null>(null);
   const [gapScope, setGapScope] = useState<'page' | 'document'>('document');
   const [gapValue, setGapValue] = useState(8);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   useEffect(() => {
     if (!errorMessage) return;
@@ -73,6 +87,16 @@ export function DocumentEditorApp() {
     } catch (error) {
       console.error('Error al leer las imágenes:', error);
     }
+  };
+
+  const handleDropFiles = async (files: File[], x: number, y: number) => {
+    const fonts = files.filter((f) => FONT_FILE_RE.test(f.name));
+    const rest = files.filter((f) => !FONT_FILE_RE.test(f.name));
+    if (fonts.length) {
+      const res = await addFontFiles(fonts);
+      setNotice(res.added.length ? `Fuente añadida: ${res.added.map((a) => a.label).join(', ')}. Búscala en el selector de tipografía.` : res.errors[0] ?? null);
+    }
+    if (rest.length) await engine?.dropFiles(rest, x, y, imageMode);
   };
 
   const handleMarginChange = (value: MarginSelectValue) => {
@@ -100,17 +124,19 @@ export function DocumentEditorApp() {
 
     return (
     <div className="doc-editor h-[100dvh] flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
-      <div className="flex flex-1 overflow-hidden md:flex-row flex-col-reverse">
+      <div className="flex flex-1 min-h-0 overflow-hidden md:flex-row flex-col-reverse">
         <IconRail
-          onImportClick={() => multiFileInputRef.current?.click()}
+          onOpenPanel={(m) => setPanel((cur) => (cur === m ? null : m))}
+          activePanel={panel}
+          hidden={menuHidden}
+          pdfEditOn={pdfEditOn}
+          onTogglePdfEdit={() => void engine?.setPdfEditMode(!pdfEditOn)}
           onAddImages={handleAddImages}
           onAddTextBox={() => engine?.insertFloatingTextBox()}
           onAddPage={() => engine?.addNewPage()}
           onOpenSignature={() => setSignatureOpen(true)}
           onOpenOrganizer={() => setOrganizerOpen(true)}
           onExportPDF={() => setExportOpen(true)}
-          onToggleFormatPanel={() => setSidePanelOpen((v) => !v)}
-          formatPanelOpen={sidePanelOpen}
           imageCount={imageCount}
           onArrange={(layout, perPage) => engine?.arrangeImages(layout, perPage)}
           onInsertShape={(kind, size, filled) => engine?.insertShape(kind, size, filled)}
@@ -120,16 +146,13 @@ export function DocumentEditorApp() {
         />
 
         <SidePanel
-          open={sidePanelOpen}
-          onClose={() => setSidePanelOpen(false)}
+          open={panel !== null}
+          mode={panel ?? 'import'}
+          onClose={() => setPanel(null)}
           multiFileInputRef={multiFileInputRef}
           onFilesSelected={(files) => engine?.handleFileSelect(files, imageMode)}
           imageMode={imageMode}
           onImageModeChange={setImageMode}
-          onAddImages={handleAddImages}
-          onAddTextBox={() => engine?.insertFloatingTextBox()}
-          onAddPage={() => engine?.addNewPage()}
-          onOpenSignature={() => setSignatureOpen(true)}
           fontValue={fontValue}
           recentFonts={recentFonts}
           onFontChange={(value) => {
@@ -144,13 +167,10 @@ export function DocumentEditorApp() {
           onFormatText={(command, value) => engine?.formatText(command, value ?? null)}
           onSaveSelection={() => engine?.saveCurrentSelection()}
           onInsertPageNumber={() => engine?.insertPageNumberField()}
-          pageCount={pageCount}
-          onOpenOrganizer={() => setOrganizerOpen(true)}
           onOpenCaptionGapAll={() => openGapDialog(gapValue)}
-          onOpenFolio={() => setFolioOpen(true)}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
           <ElementToolbar
             state={toolbarState}
             history={history}
@@ -180,16 +200,32 @@ export function DocumentEditorApp() {
             onClearFrameImage={() => engine?.clearFrameImage()}
             onFrameFit={(mode) => engine?.frameFit(mode)}
             pageInfo={pageInfo}
+            pdfEditOn={pdfEditOn}
             onOpenCanvas={() => setCanvasOpen(true)}
             onSticker={(o) => void engine?.setStickerBorder(o)}
+            onRemoveBg={() => {
+              const target = engine?.getEditableImage();
+              if (target) setBgEdit(target);
+            }}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
+          <button
+            type="button"
+            data-keep-selection
+            onClick={() => setMenuHidden((v) => !v)}
+            title={menuHidden ? 'Mostrar el menú' : 'Ocultar el menú (ver todo el lienzo)'}
+            className="md:hidden absolute z-30 left-2 bottom-16 flex items-center gap-1.5 bg-slate-900/95 border border-slate-700 text-slate-200 text-xs font-medium rounded-full pl-2.5 pr-3 py-2 shadow-xl"
+          >
+            {menuHidden ? <PanelBottomOpen className="w-4 h-4 text-blue-400" /> : <PanelBottomClose className="w-4 h-4" />}
+            {menuHidden ? 'Menú' : 'Ocultar'}
+          </button>
           <EditorCanvas
             scrollContainerRef={scrollContainerRef}
             pagesWrapperRef={pagesWrapperRef}
             zoom={zoom}
             onZoomChange={(p) => engine?.setZoom(p)}
             onFit={() => engine?.fitToWidth()}
+            onDropFiles={(f, x, y) => void handleDropFiles(f, x, y)}
           />
         </div>
       </div>
@@ -258,6 +294,16 @@ export function DocumentEditorApp() {
         }}
       />
 
+      <RemoveBgDialog
+        open={!!bgEdit}
+        src={bgEdit?.src ?? null}
+        onClose={() => setBgEdit(null)}
+        onApply={(dataUrl, w, h) => {
+          if (bgEdit) engine?.applyEditedImage(bgEdit.id, dataUrl, w, h);
+          setBgEdit(null);
+        }}
+      />
+
       <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} />
       <ExportDialog
         open={exportOpen}
@@ -279,6 +325,16 @@ export function DocumentEditorApp() {
       />
 
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
+
+      {notice && (
+        <div
+          onAnimationEnd={() => undefined}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden"
+          onClick={() => setNotice(null)}
+        >
+          {notice}
+        </div>
+      )}
 
       {errorMessage && (
         <div className="fixed bottom-4 right-4 z-[60] bg-rose-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden">

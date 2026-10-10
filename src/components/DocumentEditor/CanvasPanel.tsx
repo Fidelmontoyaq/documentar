@@ -117,7 +117,7 @@ export function CanvasPanel({ open, onClose, engine, info, pageCount }: CanvasPa
                   {g.items.map((p) => {
                     const on = !!info && Math.abs(info.w - p.w) <= 2 && Math.abs(info.h - p.h) <= 2;
                     return (
-                      <button key={p.id} type="button" onClick={() => apply(p.w, p.h, g.id)} className={`text-left ${chip(on)}`}>
+                      <button key={p.id} type="button" onClick={() => apply(p.w, p.h, g.id === 'doc' ? 'doc' : 'design')} className={`text-left ${chip(on)}`}>
                         <span className="block text-xs font-medium leading-tight">{p.label}</span>
                         <span className="block text-[10px] opacity-70">{p.hint}</span>
                       </button>

@@ -11,6 +11,7 @@ import {
   Shapes,
   Frame,
   Hash,
+  FilePenLine,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
 import { ShapesMenu } from './ShapesMenu';
@@ -18,15 +19,17 @@ import { SignatureIcon } from './icons';
 import type { ArrangeLayoutId, ShapeKind } from '../../types/documentEditor';
 
 interface IconRailProps {
-  onImportClick: () => void;
+  onOpenPanel: (mode: 'import' | 'format') => void;
+  activePanel: 'import' | 'format' | null;
+  hidden: boolean;
+  pdfEditOn: boolean;
+  onTogglePdfEdit: () => void;
   onAddImages: (files: File[]) => void;
   onAddTextBox: () => void;
   onAddPage: () => void;
   onOpenSignature: () => void;
   onOpenOrganizer: () => void;
   onExportPDF: () => void;
-  onToggleFormatPanel: () => void;
-  formatPanelOpen: boolean;
   imageCount: number;
   onArrange: (layout: ArrangeLayoutId, perPage: number) => void;
   onInsertShape: (kind: ShapeKind, size: { w: number; h: number }, filled: boolean) => void;
@@ -40,15 +43,17 @@ const btn =
 
 /** Riel de iconos: accesos directos a las acciones más usadas. */
 export function IconRail({
-  onImportClick,
+  onOpenPanel,
+  activePanel,
+  hidden,
+  pdfEditOn,
+  onTogglePdfEdit,
   onAddImages,
   onAddTextBox,
   onAddPage,
   onOpenSignature,
   onOpenOrganizer,
   onExportPDF,
-  onToggleFormatPanel,
-  formatPanelOpen,
   imageCount,
   onArrange,
   onInsertShape,
@@ -65,8 +70,8 @@ export function IconRail({
   const canArrange = imageCount >= 2;
 
   return (
-    <nav className="md:w-[72px] bg-slate-950 md:border-r max-md:border-t border-slate-800 flex md:flex-col max-md:flex-row items-stretch md:py-3 max-md:py-1 max-md:px-1 gap-1 print:hidden shrink-0 md:overflow-y-auto max-md:overflow-x-auto max-md:pb-[max(0.25rem,env(safe-area-inset-bottom))]">
-      <button type="button" onClick={onImportClick} title="Importar archivos" className={btn}>
+    <nav data-icon-rail className={`${hidden ? 'max-md:hidden ' : ''}md:w-[72px] bg-slate-950 md:border-r max-md:border-t border-slate-800 flex md:flex-col max-md:flex-row items-stretch md:py-3 max-md:py-1 max-md:px-1 gap-1 print:hidden shrink-0 md:overflow-y-auto max-md:overflow-x-auto max-md:pb-[max(0.25rem,env(safe-area-inset-bottom))]`}>
+      <button type="button" onClick={() => onOpenPanel('import')} title="Importar archivos (PDF, Word, imágenes)" className={`${btn} ${activePanel === 'import' ? '!text-blue-400 !bg-slate-800/70' : ''}`}>
         <UploadCloud className="w-5 h-5" />
         <span className="text-[10px] leading-none">Subir</span>
       </button>
@@ -142,6 +147,16 @@ export function IconRail({
         <span className="text-[10px] leading-none">Texto</span>
       </button>
 
+      <button
+        type="button"
+        onClick={onTogglePdfEdit}
+        title="Editar el texto de un PDF importado (toca un texto)"
+        className={`${btn} ${pdfEditOn ? '!text-blue-400 !bg-slate-800/70' : ''}`}
+      >
+        <FilePenLine className="w-5 h-5" />
+        <span className="text-[10px] leading-none">Editar PDF</span>
+      </button>
+
       <button type="button" onClick={onAddPage} title="Página en blanco" className={btn}>
         <FilePlus className="w-5 h-5" />
         <span className="text-[10px] leading-none">Hoja</span>
@@ -178,9 +193,9 @@ export function IconRail({
 
       <button
         type="button"
-        onClick={onToggleFormatPanel}
+        onClick={() => onOpenPanel('format')}
         title="Formato del documento (tipografía, márgenes...)"
-        className={`${btn} ${formatPanelOpen ? '!text-blue-400' : ''}`}
+        className={`${btn} ${activePanel === 'format' ? '!text-blue-400 !bg-slate-800/70' : ''}`}
       >
         <SlidersHorizontal className="w-5 h-5" />
         <span className="text-[10px] leading-none">Formato</span>

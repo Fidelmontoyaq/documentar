@@ -1,43 +1,21 @@
 import type { RefObject } from 'react';
 import {
-  X,
-  UploadCloud,
-  FileImage,
-  Image as ImageIcon,
-  Type,
-  Plus,
-  SlidersHorizontal,
-  PenSquare,
-  Bold,
-  Italic,
-  Underline,
-  Strikethrough,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  AlignJustify,
-  List,
-  ListOrdered,
-  Hash,
-  Layers,
-  LayoutGrid,
-  Rows,
+  X, UploadCloud, FileImage, SlidersHorizontal, PenSquare, Bold, Italic, Underline, Strikethrough,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Hash, Rows,
 } from 'lucide-react';
-import { SignatureIcon } from './icons';
-import { groupedFontOptions } from '../../engine/fontCatalog';
+import { FontPicker } from './FontPicker';
 import type { ImagesPerPageMode, MarginSelectValue } from '../../types/documentEditor';
+
+export type PanelMode = 'import' | 'format';
 
 interface SidePanelProps {
   open: boolean;
+  mode: PanelMode;
   onClose: () => void;
   multiFileInputRef: RefObject<HTMLInputElement>;
   onFilesSelected: (files: File[]) => void;
   imageMode: ImagesPerPageMode;
   onImageModeChange: (mode: ImagesPerPageMode) => void;
-  onAddImages: (files: File[]) => void;
-  onAddTextBox: () => void;
-  onAddPage: () => void;
-  onOpenSignature: () => void;
   fontValue: string;
   recentFonts: string[];
   onFontChange: (value: string) => void;
@@ -49,23 +27,17 @@ interface SidePanelProps {
   onFormatText: (command: string, value?: string | null) => void;
   onSaveSelection: () => void;
   onInsertPageNumber: () => void;
-  pageCount: number;
-  onOpenOrganizer: () => void;
   onOpenCaptionGapAll: () => void;
-  onOpenFolio: () => void;
 }
 
 export function SidePanel({
   open,
+  mode,
   onClose,
   multiFileInputRef,
   onFilesSelected,
   imageMode,
   onImageModeChange,
-  onAddImages,
-  onAddTextBox,
-  onAddPage,
-  onOpenSignature,
   fontValue,
   recentFonts,
   onFontChange,
@@ -77,12 +49,8 @@ export function SidePanel({
   onFormatText,
   onSaveSelection,
   onInsertPageNumber,
-  pageCount,
-  onOpenOrganizer,
   onOpenCaptionGapAll,
-  onOpenFolio,
 }: SidePanelProps) {
-  const { recent, rest } = groupedFontOptions(recentFonts);
 
   return (
     <aside
@@ -91,7 +59,7 @@ export function SidePanel({
       }`}
     >
       <div className="flex items-center justify-between px-4 pt-4">
-        <h2 className="text-sm font-bold text-white">Formato del documento</h2>
+        <h2 className="text-sm font-bold text-white">{mode === 'import' ? 'Importar archivos' : 'Formato del documento'}</h2>
         <button
           type="button"
           onClick={onClose}
@@ -104,6 +72,7 @@ export function SidePanel({
 
       <div className="p-4 space-y-6">
         {/* 1. ZONA DE CARGA UNIFICADA */}
+        {mode === 'import' && (
         <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
             <UploadCloud className="w-3.5 h-3.5 text-blue-400" /> Importar Archivos Multi-formato
@@ -154,62 +123,9 @@ export function SidePanel({
           </div>
         </div>
 
-        {/* 2. ELEMENTOS SOBRE LA HOJA ACTUAL */}
-        <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-pink-400" /> Elementos en la Hoja Actual
-          </h2>
-          <p className="text-[11px] text-slate-400">
-            Se agregan sobre la última hoja que hayas tocado. Haz clic sobre un elemento para ver sus controles.
-          </p>
-          <label className="w-full cursor-pointer bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition">
-            <ImageIcon className="w-3.5 h-3.5 text-blue-400" /> Agregar Imagen
-            <input
-              type="file"
-              accept=".png,.jpg,.jpeg,.gif,.webp"
-              className="hidden"
-              multiple
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length) onAddImages(files);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={onAddTextBox}
-            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Type className="w-3.5 h-3.5 text-emerald-400" /> Agregar Cuadro de Texto
-          </button>
-          <button
-            type="button"
-            onClick={onOpenSignature}
-            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <SignatureIcon className="w-3.5 h-3.5 text-amber-400" /> Agregar Firma
-          </button>
-          <button
-            type="button"
-            onClick={onOpenFolio}
-            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <Hash className="w-3.5 h-3.5 text-sky-400" /> Foliado de páginas
-          </button>
-        </div>
+        )}
 
-        {/* 3. AGREGAR PÁGINA EN BLANCO */}
-        <div>
-          <button
-            type="button"
-            onClick={onAddPage}
-            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium py-2.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 transition shadow-sm"
-          >
-            <Plus className="w-4 h-4 text-blue-400" /> Agregar Página en Blanco
-          </button>
-        </div>
-
+        {mode === 'format' && (<>
         {/* 4. CONFIGURACIÓN DE FORMATO Y FUENTES */}
         <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-4">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
@@ -218,28 +134,7 @@ export function SidePanel({
 
           <div>
             <label className="block text-xs text-slate-400 mb-1">Tipografía Principal</label>
-            <select
-              value={fontValue}
-              onChange={(e) => onFontChange(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 p-2.5 focus:border-blue-500 outline-none"
-            >
-              {recent.length > 0 && (
-                <optgroup label="Usadas recientemente">
-                  {recent.map((f) => (
-                    <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label={recent.length > 0 ? 'Todas las demás' : 'Todas las fuentes'}>
-                {rest.map((f) => (
-                  <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>
-                    {f.label}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+            <FontPicker value={fontValue} recentFonts={recentFonts} onChange={onFontChange} />
           </div>
 
           <div>
@@ -353,28 +248,7 @@ export function SidePanel({
           </button>
         </div>
 
-        {/* 6. GESTOR DE PÁGINAS */}
-        <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Layers className="w-3.5 h-3.5 text-amber-400" /> Estructura de Páginas
-            </h2>
-            <span className="bg-blue-600/30 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold">
-              {pageCount} Pág{pageCount > 1 ? 's' : ''}
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400">
-            Arrastra cualquier hoja en el área de trabajo para moverla de una en una, o usa la vista de miniaturas
-            para reordenar varias a la vez.
-          </p>
-          <button
-            type="button"
-            onClick={onOpenOrganizer}
-            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition"
-          >
-            <LayoutGrid className="w-3.5 h-3.5 text-amber-400" /> Organizar Páginas (vista de miniaturas)
-          </button>
-        </div>
+        </>)}
       </div>
     </aside>
   );

@@ -183,3 +183,17 @@ body.exporting .show-grid .a4-page::after { display: none; }
 .snap-line { position: absolute; pointer-events: none; z-index: 6; background: #ec4899; }
 .snap-line.snap-v { top: 0; bottom: 0; width: 1px; }
 .snap-line.snap-h { left: 0; right: 0; height: 1px; }
+
+/* Barras con scroll horizontal sin mostrar la barra */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ===== Editar texto de PDF en el sitio ===== */
+.pdf-edit-mode .a4-page[data-pdf-page="true"] { cursor: text; }
+.pdf-hover {
+  position: absolute; z-index: 28; pointer-events: none;
+  background: rgba(59, 130, 246, 0.14); outline: 1.5px solid rgba(59, 130, 246, 0.85); border-radius: 2px;
+}
+.pdf-edit-overlay { -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+.pdf-edit-overlay::selection { background: rgba(59, 130, 246, 0.35); }
+body.exporting .pdf-hover, body.exporting .pdf-edit-bg { display: none !important; }

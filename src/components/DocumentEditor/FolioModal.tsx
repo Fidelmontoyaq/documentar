@@ -14,7 +14,7 @@ import {
   type FolioVertical,
 } from '../../engine/folio';
 import { BATCH_ACCEPT, downloadBlob, foliateFiles, type FolioBatchFileResult } from '../../engine/folioBatch';
-import { groupedFontOptions } from '../../engine/fontCatalog';
+import { FontPicker } from './FontPicker';
 
 interface FolioModalProps {
   open: boolean;
@@ -82,7 +82,6 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts }: Fo
   const [results, setResults] = useState<FolioBatchFileResult[] | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { recent, rest } = groupedFontOptions(recentFonts);
 
   // Al abrir, retoma el estado real del documento (por si ya estaba activado).
   useEffect(() => {
@@ -262,20 +261,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts }: Fo
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2">
                   <label className={label}>Tipo de letra</label>
-                  <select value={cfg.fontFamily} onChange={(e) => update({ fontFamily: e.target.value })} className={`${field} w-full`}>
-                    {recent.length > 0 && (
-                      <optgroup label="Usadas recientemente">
-                        {recent.map((f) => (
-                          <option key={f.value} value={f.value}>{f.label}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <optgroup label="Todas las fuentes">
-                      {rest.map((f) => (
-                        <option key={f.value} value={f.value}>{f.label}</option>
-                      ))}
-                    </optgroup>
-                  </select>
+                  <FontPicker value={cfg.fontFamily} recentFonts={recentFonts} onChange={(v) => update({ fontFamily: v })} />
                 </div>
                 <div>
                   <label className={label}>Tamaño (px)</label>

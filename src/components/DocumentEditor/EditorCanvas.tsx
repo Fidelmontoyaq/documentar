@@ -1,5 +1,5 @@
-import type { RefObject } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { useRef, useState, type RefObject } from 'react';
+import { FilePlus2, Minus, Plus } from 'lucide-react';
 
 interface EditorCanvasProps {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -7,6 +7,8 @@ interface EditorCanvasProps {
   zoom: number;
   onZoomChange: (percent: number) => void;
   onFit?: () => void;
+  /** Archivos soltados sobre el lienzo (con la posición del puntero). */
+  onDropFiles?: (files: File[], x: number, y: number) => void;
 }
 
 /**
@@ -16,11 +18,46 @@ interface EditorCanvasProps {
  * React nunca reconcilia ese subárbol. Va dentro de un "shell" cuyo tamaño
  * el motor ajusta al zoom para que el scroll siga siendo correcto.
  */
-export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoomChange, onFit }: EditorCanvasProps) {
+export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoomChange, onFit, onDropFiles }: EditorCanvasProps) {
+  const [dragging, setDragging] = useState(false);
+  const depth = useRef(0);
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   const clamp = (v: number) => Math.min(300, Math.max(25, Math.round(v)));
 
   return (
-    <div className="relative flex-1 min-h-0 flex">
+    <div
+      className="relative flex-1 min-h-0 flex"
+      onDragEnter={(e) => {
+        if (!onDropFiles || !hasFiles(e)) return;
+        depth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (!onDropFiles || !hasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={(e) => {
+        if (!onDropFiles || !hasFiles(e)) return;
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!onDropFiles || !hasFiles(e)) return;
+        e.preventDefault();
+        depth.current = 0;
+        setDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length) onDropFiles(files, e.clientX, e.clientY);
+      }}
+    >
+      {dragging && (
+        <div className="absolute inset-2 z-40 pointer-events-none rounded-2xl border-2 border-dashed border-blue-400 bg-blue-500/10 flex items-center justify-center">
+          <div className="flex items-center gap-2 bg-slate-900/95 text-blue-300 text-sm font-medium px-4 py-2.5 rounded-full shadow-xl">
+            <FilePlus2 className="w-5 h-5" /> Suelta aquí tus PDF, Word, imágenes o fuentes
+          </div>
+        </div>
+      )}
       <main ref={scrollContainerRef} id="editorContainer" className="flex-1 bg-slate-950 p-2 md:p-8 pb-24 md:pb-20 overflow-auto">
         <div className="mx-auto">
           <div ref={pagesWrapperRef} id="pagesWrapper" className="w-[210mm] space-y-8" />
