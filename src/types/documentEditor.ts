@@ -90,6 +90,10 @@ export interface ToolbarState {
 
 /** Callbacks con los que el motor avisa a React de cambios de estado. */
 export interface DocumentEditorEngineListeners {
+  /** Aviso corto para el usuario (no es un error). */
+  onNotice?: (message: string) => void;
+  /** El modo "editar texto del PDF" se activó o desactivó. */
+  onPdfEditModeChange?: (on: boolean) => void;
   onPageCountChange?: (count: number) => void;
   /** Cantidad de imágenes en la hoja activa (para habilitar el botón Ordenar). */
   onActiveImagesChange?: (count: number) => void;
