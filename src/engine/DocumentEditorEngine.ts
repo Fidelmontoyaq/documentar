@@ -14,12 +14,15 @@ import type {
   ImagesPerPageMode,
   MarginPresetClass,
   PageOrientation,
+  ShapeKind,
+  ShapeState,
   ToolbarState,
   ToolbarTargetKind,
 } from '../types/documentEditor';
 import { fileExtension, loadImageNaturalSize, readFileAsDataURL } from './fileUtils';
 import { processDocxFile, processPDFFile } from './fileProcessors';
 import { CAPTION_SPACE, computeLayout } from './imageLayouts';
+import { DEFAULT_FOLIO, folioPosition, folioText, renderFolioBadge, type FolioConfig } from './folio';
 
 const MARGIN_CLASSES: MarginPresetClass[] = [
   'p-[25mm_20mm]',
@@ -88,6 +91,19 @@ export class DocumentEditorEngine {
   private pasteStep = 0;
   private markerWritten = false;
 
+  // Foliado (numeración de páginas) dibujado sobre cada hoja
+  private folioCfg: FolioConfig = { ...DEFAULT_FOLIO };
+  private folioToken = 0;
+  private folioRaf = 0;
+  private folioCache = new Map<string, { url: string; w: number; h: number }>();
+
+  // Móvil: ajuste automático del zoom al ancho y pellizco con dos dedos
+  private autoFit = false;
+  private pinch: { d0: number; z0: number } | null = null;
+  private boundTouchStart = this.handleTouchStart.bind(this);
+  private boundTouchMove = this.handleTouchMove.bind(this);
+  private boundTouchEnd = this.handleTouchEnd.bind(this);
+
   // Zoom
   private zoom = 1;
   private zoomShell: HTMLElement | null = null;
@@ -130,6 +146,10 @@ export class DocumentEditorEngine {
     document.addEventListener('copy', this.boundCopyEvt);
     document.addEventListener('cut', this.boundCopyEvt);
     this.scrollContainer.addEventListener('wheel', this.boundWheel, { passive: false });
+    this.scrollContainer.addEventListener('touchstart', this.boundTouchStart, { passive: true });
+    this.scrollContainer.addEventListener('touchmove', this.boundTouchMove, { passive: false });
+    this.scrollContainer.addEventListener('touchend', this.boundTouchEnd, { passive: true });
+    this.scrollContainer.addEventListener('touchcancel', this.boundTouchEnd, { passive: true });
 
     this.observer = new MutationObserver(() => {
       this.scheduleImageInfo();
@@ -140,7 +160,10 @@ export class DocumentEditorEngine {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['style', 'class', 'data-cap-gap', 'data-cap-dx', 'data-cap-w', 'data-ar', 'data-rotation'],
+      attributeFilter: [
+        'style', 'class', 'data-cap-gap', 'data-cap-dx', 'data-cap-w', 'data-ar', 'data-rotation',
+        'data-shape', 'data-fill-on', 'data-fill', 'data-fill-op', 'data-bc', 'data-bw', 'data-sides', 'data-rad', 'data-has-img',
+      ],
     });
 
     // Zoom: el contenedor directo del lienzo se ajusta al tamaño escalado.
@@ -148,6 +171,12 @@ export class DocumentEditorEngine {
     this.resizeObserver = new ResizeObserver(() => this.syncZoomShell());
     this.resizeObserver.observe(this.pagesWrapper);
     this.syncZoomShell();
+
+    // En pantallas angostas (celular) la hoja se ajusta sola al ancho disponible.
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      this.autoFit = true;
+      this.fitToWidth();
+    }
 
     this.updatePageNumbers();
     this.history = [this.serializeState()];
@@ -167,6 +196,11 @@ export class DocumentEditorEngine {
     document.removeEventListener('copy', this.boundCopyEvt);
     document.removeEventListener('cut', this.boundCopyEvt);
     this.scrollContainer.removeEventListener('wheel', this.boundWheel);
+    this.scrollContainer.removeEventListener('touchstart', this.boundTouchStart);
+    this.scrollContainer.removeEventListener('touchmove', this.boundTouchMove);
+    this.scrollContainer.removeEventListener('touchend', this.boundTouchEnd);
+    this.scrollContainer.removeEventListener('touchcancel', this.boundTouchEnd);
+    cancelAnimationFrame(this.folioRaf);
     clearTimeout(this.commitTimer);
     this.sortableInstance?.destroy();
     cancelAnimationFrame(this.scrollRaf);
@@ -291,9 +325,22 @@ export class DocumentEditorEngine {
       return;
     }
     const selected = this.getSelectedBox();
+    if (e.key === 'Escape' && selected && !selected.classList.contains('cropping') && !inField) {
+      // Esc: suelta la selección (y sale del cuadro de texto si se estaba escribiendo).
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      selected.classList.remove('box-selected');
+      this.hideElementToolbar();
+      return;
+    }
     // "C" (sin Ctrl) activa/desactiva el recorte de la imagen seleccionada,
     // igual que un atajo de una sola letra en un editor de diseño.
-    if (!t?.isContentEditable && !inField && e.key.toLowerCase() === 'c' && selected?.dataset.type === 'image') {
+    if (
+      !t?.isContentEditable &&
+      !inField &&
+      e.key.toLowerCase() === 'c' &&
+      selected &&
+      (selected.dataset.type === 'image' || (selected.dataset.type === 'frame' && selected.dataset.hasImg))
+    ) {
       e.preventDefault();
       this.toggleCropMode();
       return;
@@ -308,6 +355,7 @@ export class DocumentEditorEngine {
     if (selected) {
       e.preventDefault();
       this.removeFloatingBox(selected);
+      this.commitNow();
     }
   }
 
@@ -321,12 +369,16 @@ export class DocumentEditorEngine {
 
   private handleResize() {
     this.syncZoomShell();
+    if (this.autoFit) this.fitToWidth();
   }
 
   // ===================== SORTABLE (reordenar hojas arrastrando) =====================
 
   private initSortable() {
     this.sortableInstance = new Sortable(this.pagesWrapper, {
+      // En pantallas táctiles NO se reordena arrastrando la hoja (chocaba con el
+      // desplazamiento): para eso está "Organizar" y los botones de la hoja.
+      disabled: window.matchMedia('(pointer: coarse)').matches,
       animation: 250,
       handle: '.a4-page',
       filter: '[contenteditable="true"], button, input, .img-tools, .floating-box, .margin-guide',
@@ -531,6 +583,8 @@ export class DocumentEditorEngine {
       });
     });
     this.listeners.onPageCountChange?.(pages.length);
+    this.scheduleFolios();
+    if (this.autoFit) this.fitToWidth();
   }
 
   getPageCount(): number {
@@ -637,8 +691,24 @@ export class DocumentEditorEngine {
 
   // ===================== IMPORTACIÓN MULTI-FORMATO =====================
 
+  /** Hoja sin nada escrito, sin imágenes ni elementos: la típica primera hoja intacta. */
+  private isPagePristine(page: HTMLElement): boolean {
+    if (page.dataset.pdfPage === 'true') return false;
+    if (page.querySelector('.floating-box')) return false;
+    const header = page.querySelector<HTMLElement>(':scope > .page-header')?.textContent?.trim();
+    const footer = page.querySelector<HTMLElement>(':scope > .page-footer')?.textContent?.trim();
+    const content = page.querySelector<HTMLElement>(':scope > .page-content');
+    if (content && (content.textContent?.trim() || content.querySelector('img, table, ul, ol'))) return false;
+    return !header && !footer;
+  }
+
   async handleFileSelect(files: File[], imageMode: ImagesPerPageMode): Promise<void> {
     if (files.length === 0) return;
+
+    // Si el documento es solo la primera hoja sin tocar, al subir archivos esa
+    // hoja sobra: los archivos ocupan su lugar. (Si ya se escribió algo, se conserva.)
+    const allPages = this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page');
+    const pristinePage = allPages.length === 1 && this.isPagePristine(allPages[0]) ? allPages[0] : null;
 
     this.busy = true;
     this.listeners.onLoadingChange?.({
@@ -674,11 +744,15 @@ export class DocumentEditorEngine {
       }
     }
 
+    // Con la hoja intacta y archivos PDF/Word en la misma carga, las imágenes
+    // también van a hojas nuevas (no a la hoja vacía que se va a quitar).
+    const mode: ImagesPerPageMode = imageMode === 'current' && pristinePage && otherFiles.length > 0 ? '1' : imageMode;
+
     if (imageFiles.length > 0) {
       try {
         const dataUrls = await Promise.all(imageFiles.map(readFileAsDataURL));
 
-        if (imageMode === 'current') {
+        if (mode === 'current') {
           // En la hoja donde está el usuario, acomodadas automáticamente.
           const page = this.getActivePage();
           if (page) {
@@ -688,7 +762,7 @@ export class DocumentEditorEngine {
             }
             this.arrangeImagesOn(page, 'flex');
           }
-        } else if (imageMode === '1') {
+        } else if (mode === '1') {
           // Una hoja nueva por imagen: cada una es su propio archivo, así que
           // cada hoja recibe su propio grupo/color en el organizador. Si la
           // imagen es horizontal y se aproxima a una A4 apaisada, la hoja se
@@ -723,6 +797,13 @@ export class DocumentEditorEngine {
         console.error('Error al procesar imágenes:', error);
         this.listeners.onError?.('Ocurrió un error al procesar una o más imágenes.');
       }
+    }
+
+    if (pristinePage && this.pagesWrapper.contains(pristinePage) && this.pagesWrapper.querySelectorAll('.a4-page').length > 1 && this.isPagePristine(pristinePage)) {
+      pristinePage.remove();
+      this.updatePageNumbers();
+      this.activePage = null;
+      this.setActivePage(this.pagesWrapper.querySelector<HTMLElement>('.a4-page'));
     }
 
     this.busy = false;
@@ -823,12 +904,15 @@ export class DocumentEditorEngine {
     const rects = computeLayout(layout, items, area);
     boxes.forEach((b, i) => {
       const r = rects[i];
+      const crop = this.captureCrop(b);
       b.style.left = `${Math.round(r.x)}px`;
       b.style.top = `${Math.round(r.y)}px`;
       b.style.width = `${Math.round(r.w)}px`;
       b.style.height = `${Math.round(r.h)}px`;
       b.style.transform = '';
       b.dataset.rotation = '0';
+      if (crop) this.rescaleCrop(b, crop);
+      this.applyBoxRadius(b);
       this.syncLinkedCaption(b);
     });
   }
@@ -895,6 +979,268 @@ export class DocumentEditorEngine {
     box.querySelector<HTMLElement>('[contenteditable="true"]')?.focus();
   }
 
+  // ===================== FORMAS Y MARCOS =====================
+  //
+  // Una forma es un cuadro flotante más (se mueve, redimensiona y gira como una
+  // imagen) cuyo cuerpo `.shape-body` se pinta con CSS: relleno + borde por
+  // lado + esquinas. Un marco es una forma con un hueco para meter una imagen.
+
+  private shapeBody(box: HTMLElement): HTMLElement | null {
+    return box.querySelector<HTMLElement>('.shape-body');
+  }
+
+  private hexToRgba(hex: string, alpha: number): string {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+
+  private readShape(box: HTMLElement): ShapeState {
+    const d = box.dataset;
+    const sides = (d.sides ?? '1111').padEnd(4, '1').split('').map((c) => c === '1') as [boolean, boolean, boolean, boolean];
+    return {
+      kind: (d.shape as ShapeKind) ?? 'rect',
+      fillOn: d.fillOn !== '0',
+      fill: d.fill || '#60a5fa',
+      fillOpacity: d.fillOp !== undefined && d.fillOp !== '' ? Number(d.fillOp) : 1,
+      borderColor: d.bc || '#1e293b',
+      borderWidth: d.bw !== undefined && d.bw !== '' ? Number(d.bw) : 4,
+      sides,
+      radiusPct: parseFloat(d.rad || '0') || 0,
+      frameFilled: !!d.hasImg,
+    };
+  }
+
+  /** Pinta la forma o marco según sus propiedades (data-*). */
+  private applyShapeStyle(box: HTMLElement) {
+    const body = this.shapeBody(box);
+    if (!body) return;
+    const s = this.readShape(box);
+    body.style.boxSizing = 'border-box';
+    body.style.background = s.fillOn ? this.hexToRgba(s.fill, s.fillOpacity) : 'transparent';
+    body.style.borderStyle = 'solid';
+    body.style.borderColor = s.borderColor;
+    const w = s.sides.map((on) => (on ? s.borderWidth : 0));
+    body.style.borderWidth = `${w[0]}px ${w[1]}px ${w[2]}px ${w[3]}px`;
+    const px = Math.round((s.radiusPct / 100) * Math.min(box.clientWidth, box.clientHeight));
+    const radius = s.kind === 'ellipse' ? '50%' : `${px}px`;
+    body.style.borderRadius = radius;
+    box.style.borderRadius = s.kind === 'ellipse' ? '50%' : `${px + 2}px`;
+  }
+
+  /** Esquinas redondeadas de las imágenes (y radio de formas/marcos) según data-rad. */
+  private applyBoxRadius(box: HTMLElement) {
+    const type = box.dataset.type;
+    if (type === 'shape' || type === 'frame') {
+      this.applyShapeStyle(box);
+      return;
+    }
+    if (type !== 'image') return;
+    const pct = parseFloat(box.dataset.rad || '0') || 0;
+    const content = box.querySelector<HTMLElement>('.floating-box-content');
+    if (!content) return;
+    const px = pct > 0 ? Math.round((pct / 100) * Math.min(box.clientWidth, box.clientHeight)) : 0;
+    content.style.borderRadius = px ? `${px}px` : '';
+    box.style.borderRadius = px ? `${px + 2}px` : '';
+  }
+
+  insertShape(kind: ShapeKind, size: { w: number; h: number }, filled: boolean) {
+    this.insertShapeLike('shape', kind, size, filled);
+  }
+
+  insertFrame(kind: ShapeKind, size: { w: number; h: number }) {
+    this.insertShapeLike('frame', kind, size, true);
+  }
+
+  private insertShapeLike(type: 'shape' | 'frame', kind: ShapeKind, size: { w: number; h: number }, filled: boolean) {
+    const page = this.getActivePage();
+    if (!page) return;
+    const area = this.getPageArea(page);
+    const off = this.nextFloatingOffset();
+    const w = Math.min(size.w, area.w);
+    const h = Math.min(size.h, area.h);
+    const left = Math.round(area.x + (area.w - w) / 2 + off);
+    const top = Math.round(area.y + Math.min(60, (area.h - h) / 2) + off);
+    const inner =
+      type === 'frame'
+        ? `<div class="shape-body frame-body"><div class="frame-slot"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg><span>Toca para agregar imagen</span></div></div>`
+        : `<div class="shape-body"></div>`;
+    const id = `fb-${++this.floatingBoxCounter}-${Date.now()}`;
+    page.insertAdjacentHTML('beforeend', this.floatingBoxHTML(type, { top, left }, inner, w, h, id));
+    const box = page.lastElementChild as HTMLElement;
+    box.dataset.shape = kind;
+    box.dataset.rad = kind === 'rounded' ? '16' : '0';
+    box.dataset.sides = '1111';
+    if (type === 'frame') {
+      box.dataset.fillOn = '1';
+      box.dataset.fill = '#e2e8f0';
+      box.dataset.fillOp = '1';
+      box.dataset.bc = '#334155';
+      box.dataset.bw = '4';
+    } else if (filled) {
+      box.dataset.fillOn = '1';
+      box.dataset.fill = '#60a5fa';
+      box.dataset.fillOp = '1';
+      box.dataset.bc = '#1d4ed8';
+      box.dataset.bw = '4';
+    } else {
+      box.dataset.fillOn = '0';
+      box.dataset.fill = '#60a5fa';
+      box.dataset.fillOp = '1';
+      box.dataset.bc = '#0f172a';
+      box.dataset.bw = '4';
+    }
+    this.initFloatingBox(box);
+    this.applyShapeStyle(box);
+    this.selectFloatingBox(box);
+    this.commitNow();
+  }
+
+  /** Caja seleccionada en la barra superior (si es un cuadro flotante). */
+  private getEtBox(): HTMLElement | null {
+    return this.etTargetKind === 'box' ? this.etTarget : this.getSelectedBox();
+  }
+
+  /** Cambia propiedades de la forma/marco seleccionado (relleno, borde, esquinas…). */
+  setShapeProps(patch: Partial<Pick<ShapeState, 'kind' | 'fillOn' | 'fill' | 'fillOpacity' | 'borderColor' | 'borderWidth' | 'radiusPct'>>) {
+    const box = this.getEtBox();
+    if (!box || (box.dataset.type !== 'shape' && box.dataset.type !== 'frame')) return;
+    if (patch.kind !== undefined) box.dataset.shape = patch.kind;
+    if (patch.fillOn !== undefined) box.dataset.fillOn = patch.fillOn ? '1' : '0';
+    if (patch.fill !== undefined) box.dataset.fill = patch.fill;
+    if (patch.fillOpacity !== undefined) box.dataset.fillOp = String(patch.fillOpacity);
+    if (patch.borderColor !== undefined) box.dataset.bc = patch.borderColor;
+    if (patch.borderWidth !== undefined) box.dataset.bw = String(Math.max(0, Math.min(60, patch.borderWidth)));
+    if (patch.radiusPct !== undefined) box.dataset.rad = String(Math.max(0, Math.min(50, patch.radiusPct)));
+    this.applyShapeStyle(box);
+    this.publishToolbarState();
+  }
+
+  /** Activa/desactiva el borde de un lado: 0 arriba, 1 derecha, 2 abajo, 3 izquierda. */
+  toggleShapeSide(index: number) {
+    const box = this.getEtBox();
+    if (!box || (box.dataset.type !== 'shape' && box.dataset.type !== 'frame')) return;
+    const sides = this.readShape(box).sides.map((v) => (v ? '1' : '0'));
+    sides[index] = sides[index] === '1' ? '0' : '1';
+    box.dataset.sides = sides.join('');
+    this.applyShapeStyle(box);
+    this.publishToolbarState();
+  }
+
+  /** Todos los lados a la vez, o solo los que se indiquen (p. ej. [true,false,true,false]). */
+  setShapeSides(sides: boolean | [boolean, boolean, boolean, boolean]) {
+    const box = this.getEtBox();
+    if (!box || (box.dataset.type !== 'shape' && box.dataset.type !== 'frame')) return;
+    const arr = typeof sides === 'boolean' ? [sides, sides, sides, sides] : sides;
+    box.dataset.sides = arr.map((v) => (v ? '1' : '0')).join('');
+    this.applyShapeStyle(box);
+    this.publishToolbarState();
+  }
+
+  /** Esquinas redondeadas (% del lado menor) de la imagen, forma o marco seleccionado. */
+  setRadiusPct(pct: number) {
+    const box = this.getEtBox();
+    if (!box) return;
+    const type = box.dataset.type;
+    if (type !== 'image' && type !== 'shape' && type !== 'frame') return;
+    box.dataset.rad = String(Math.max(0, Math.min(50, pct)));
+    this.applyBoxRadius(box);
+    this.publishToolbarState();
+  }
+
+  /** Abre el selector de archivos para meter una imagen en el marco seleccionado. */
+  pickFrameImage(target?: HTMLElement) {
+    const box = target ?? this.getEtBox();
+    if (!box || box.dataset.type !== 'frame') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (file) await this.setFrameImage(box, await readFileAsDataURL(file));
+    };
+    input.click();
+  }
+
+  async setFrameImage(box: HTMLElement, src: string) {
+    const body = this.shapeBody(box);
+    if (!body) return;
+    const nat = await loadImageNaturalSize(src);
+    body.querySelector('img.frame-img')?.remove();
+    const img = document.createElement('img');
+    img.className = 'frame-img';
+    img.src = src;
+    img.draggable = false;
+    img.style.pointerEvents = 'none';
+    body.appendChild(img);
+    box.dataset.hasImg = '1';
+    box.dataset.natW = String(nat.w);
+    box.dataset.natH = String(nat.h);
+    this.fitFrameImage(box, 'cover');
+    this.commitNow();
+    this.publishToolbarState();
+  }
+
+  /** Ajusta la imagen del marco: 'cover' llena el marco (recorta lo que sobra), 'contain' la muestra entera. */
+  fitFrameImage(box: HTMLElement, mode: 'cover' | 'contain') {
+    const body = this.shapeBody(box);
+    const natW = parseFloat(box.dataset.natW || '0');
+    const natH = parseFloat(box.dataset.natH || '0');
+    if (!body || !natW || !natH) return;
+    const vw = body.clientWidth;
+    const vh = body.clientHeight;
+    const k = mode === 'cover' ? Math.max(vw / natW, vh / natH) : Math.min(vw / natW, vh / natH);
+    const cw = natW * k;
+    const ch = natH * k;
+    box.dataset.cropW = String(cw);
+    box.dataset.cropH = String(ch);
+    box.dataset.cropX = String((vw - cw) / 2);
+    box.dataset.cropY = String((vh - ch) / 2);
+    this.applyCropStyle(box);
+  }
+
+  /** API de la barra: ajustar la imagen del marco seleccionado. */
+  frameFit(mode: 'cover' | 'contain') {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'frame' || !box.dataset.hasImg) return;
+    this.fitFrameImage(box, mode);
+    this.commitNow();
+  }
+
+  clearFrameImage() {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'frame') return;
+    this.shapeBody(box)?.querySelector('img.frame-img')?.remove();
+    ['hasImg', 'natW', 'natH', 'cropW', 'cropH', 'cropX', 'cropY'].forEach((k) => delete box.dataset[k]);
+    box.classList.remove('cropping');
+    this.commitNow();
+    this.publishToolbarState();
+  }
+
+  /** Al soltar una imagen sobre un marco vacío, la imagen entra en el marco. */
+  private maybeAdoptIntoFrame(imageBox: HTMLElement) {
+    if (imageBox.dataset.type !== 'image') return;
+    const page = imageBox.parentElement;
+    const img = imageBox.querySelector<HTMLImageElement>('img');
+    if (!page || !img) return;
+    const cx = imageBox.offsetLeft + imageBox.offsetWidth / 2;
+    const cy = imageBox.offsetTop + imageBox.offsetHeight / 2;
+    const frames = Array.from(page.querySelectorAll<HTMLElement>(':scope > .floating-box[data-type="frame"]'));
+    const target = frames.find(
+      (f) =>
+        !f.dataset.hasImg &&
+        cx >= f.offsetLeft &&
+        cx <= f.offsetLeft + f.offsetWidth &&
+        cy >= f.offsetTop &&
+        cy <= f.offsetTop + f.offsetHeight
+    );
+    if (!target) return;
+    const src = img.src;
+    this.removeFloatingBox(imageBox);
+    void this.setFrameImage(target, src).then(() => this.selectFloatingBox(target));
+  }
+
   private insertFloatingImageAt(
     page: HTMLElement,
     src: string,
@@ -905,7 +1251,7 @@ export class DocumentEditorEngine {
     ar: number
   ): HTMLElement {
     const id = `fb-${++this.floatingBoxCounter}-${Date.now()}`;
-    const inner = `<img src="${src}" class="w-full h-full pointer-events-none rounded" style="object-fit:fill;" draggable="false" />`;
+    const inner = `<img src="${src}" class="w-full h-full pointer-events-none" style="object-fit:fill;" draggable="false" />`;
     page.insertAdjacentHTML('beforeend', this.floatingBoxHTML('image', { top, left }, inner, width, height, id));
     const box = page.lastElementChild as HTMLElement;
     box.dataset.ar = String(ar);
@@ -986,7 +1332,13 @@ export class DocumentEditorEngine {
     height: number,
     fbId = ''
   ): string {
-    const labels: Record<FloatingBoxType, string> = { image: 'Imagen', text: 'Texto', caption: 'Pie de foto' };
+    const labels: Record<FloatingBoxType, string> = {
+      image: 'Imagen',
+      text: 'Texto',
+      caption: 'Pie de foto',
+      shape: 'Forma',
+      frame: 'Marco',
+    };
     const corners = ['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'];
     const handlesHTML = corners
       .map((c) => `<div class="floating-box-ctrl ctrl-${c} print:hidden" data-dir="${c}"></div>`)
@@ -998,7 +1350,7 @@ export class DocumentEditorEngine {
           <button type="button" class="floating-box-duplicate text-[10px] text-white bg-slate-600 hover:bg-slate-500 px-1 rounded ml-1" title="Duplicar">&#10697;</button>
           <button type="button" class="floating-box-remove text-[10px] text-white bg-rose-600 hover:bg-rose-500 px-1 rounded" title="Eliminar">&#10005;</button>
         </div>
-        <div class="floating-box-content w-full h-full overflow-hidden">${innerHTML}</div>
+        <div class="floating-box-content relative w-full h-full overflow-hidden">${innerHTML}</div>
         ${handlesHTML}
         <div class="floating-box-rotate print:hidden" title="Girar">&#10227;</div>
       </div>
@@ -1085,9 +1437,24 @@ export class DocumentEditorEngine {
 
   // ---------- Mover / redimensionar / girar ----------
 
-  private startBoxMove(box: HTMLElement, e: PointerEvent) {
+  /** Escucha el gesto en curso (ratón, lápiz o dedo) hasta que termina o se cancela. */
+  private track(onMove: (ev: PointerEvent) => void, onEnd: () => void) {
+    const up = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', up);
+      onEnd();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+  }
+
+  private startBoxMove(box: HTMLElement, e: PointerEvent, onTap?: () => void) {
     e.preventDefault();
     e.stopPropagation();
+    // Deja de escribir (si lo hacía) para que Supr borre el elemento y no una letra.
+    (document.activeElement as HTMLElement | null)?.blur?.();
     this.selectFloatingBox(box);
     const page = box.parentElement as HTMLElement;
     const guide = this.showMarginGuide(page);
@@ -1097,8 +1464,10 @@ export class DocumentEditorEngine {
     const startY = e.clientY;
     const startLeft = box.offsetLeft;
     const startTop = box.offsetTop;
+    let moved = 0;
 
     const onMove = (ev: PointerEvent) => {
+      moved = Math.max(moved, Math.hypot(ev.clientX - startX, ev.clientY - startY));
       // Libre por TODA la hoja (no solo dentro de los márgenes).
       const newLeft = Math.max(0, Math.min(startLeft + (ev.clientX - startX) / this.zoom, page.clientWidth - box.offsetWidth));
       const newTop = Math.max(0, Math.min(startTop + (ev.clientY - startY) / this.zoom, page.clientHeight - box.offsetHeight - capExtra));
@@ -1107,14 +1476,12 @@ export class DocumentEditorEngine {
       this.syncLinkedCaption(box);
       this.updateMarginGuide(page, guide, box);
     };
-    const onUp = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+    this.track(onMove, () => {
       this.hideMarginGuide(page);
       this.finishBoxInteraction(box);
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+      if (moved < 4) onTap?.();
+      else this.maybeAdoptIntoFrame(box);
+    });
   }
 
   private startBoxResize(box: HTMLElement, dir: string, e: PointerEvent) {
@@ -1134,7 +1501,14 @@ export class DocumentEditorEngine {
     const startLeft = box.offsetLeft;
     const startTop = box.offsetTop;
     const isCorner = dir.length === 2;
+    const cropping = box.classList.contains('cropping');
+    // Las imágenes conservan su proporción en las esquinas (salvo al recortar);
+    // el resto de elementos son libres. Mayús invierte la regla.
+    const base = box.dataset.type === 'image' && !cropping;
+    const proportional = isCorner && (e.shiftKey ? !base : base);
+    const startCrop = this.captureCrop(box);
     const MIN = 30;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(hi, lo));
 
     const onMove = (ev: PointerEvent) => {
       const dx = (ev.clientX - startX) / this.zoom;
@@ -1144,8 +1518,8 @@ export class DocumentEditorEngine {
       let newLeft = startLeft;
       let newTop = startTop;
 
-      if (isCorner) {
-        // Esquinas: escala proporcional; la esquina opuesta queda fija.
+      if (proportional) {
+        // Esquina opuesta fija; escala proporcional.
         const growRight = dir.includes('e');
         const growBottom = dir.includes('s');
         let scale = (growRight ? startWidth + dx : startWidth - dx) / startWidth;
@@ -1157,16 +1531,17 @@ export class DocumentEditorEngine {
         newHeight = startHeight * scale;
         newLeft = growRight ? startLeft : startLeft + (startWidth - newWidth);
         newTop = growBottom ? startTop : startTop + (startHeight - newHeight);
-      } else if (dir === 'e') {
-        newWidth = Math.min(Math.max(MIN, startWidth + dx), pageW - startLeft);
-      } else if (dir === 'w') {
-        newWidth = Math.min(Math.max(MIN, startWidth - dx), startLeft + startWidth);
-        newLeft = startLeft + (startWidth - newWidth);
-      } else if (dir === 's') {
-        newHeight = Math.min(Math.max(MIN, startHeight + dy), pageH - startTop);
-      } else if (dir === 'n') {
-        newHeight = Math.min(Math.max(MIN, startHeight - dy), startTop + startHeight);
-        newTop = startTop + (startHeight - newHeight);
+      } else {
+        if (dir.includes('e')) newWidth = clamp(startWidth + dx, MIN, pageW - startLeft);
+        if (dir.includes('w')) {
+          newWidth = clamp(startWidth - dx, MIN, startLeft + startWidth);
+          newLeft = startLeft + (startWidth - newWidth);
+        }
+        if (dir.includes('s')) newHeight = clamp(startHeight + dy, MIN, pageH - startTop);
+        if (dir.includes('n')) {
+          newHeight = clamp(startHeight - dy, MIN, startTop + startHeight);
+          newTop = startTop + (startHeight - newHeight);
+        }
       }
 
       box.style.width = `${newWidth}px`;
@@ -1174,16 +1549,14 @@ export class DocumentEditorEngine {
       box.style.left = `${newLeft}px`;
       box.style.top = `${newTop}px`;
       this.syncLinkedCaption(box);
+      if (startCrop) this.adaptCrop(box, startCrop, newLeft - startLeft, newTop - startTop, cropping);
+      this.applyBoxRadius(box);
       this.updateMarginGuide(page, guide, box);
     };
-    const onUp = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+    this.track(onMove, () => {
       this.hideMarginGuide(page);
       this.finishBoxInteraction(box);
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    });
   }
 
   private startBoxRotate(box: HTMLElement, e: PointerEvent) {
@@ -1199,51 +1572,119 @@ export class DocumentEditorEngine {
       box.style.transform = `rotate(${angle}deg)`;
       box.dataset.rotation = String(angle);
     };
-    const onUp = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      this.finishBoxInteraction(box);
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    this.track(onMove, () => this.finishBoxInteraction(box));
   }
 
   private finishBoxInteraction(box: HTMLElement) {
     this.busy = false;
     if (box.dataset.captionFor) this.learnCaptionOffset(box);
     this.commitNow();
+    this.publishToolbarState();
   }
 
   // ===================== RECORTE DE IMAGEN (no destructivo, como en Word) =====================
   //
-  // La imagen de origen nunca se modifica ni se recorta de verdad: dentro
-  // del visor (la propia caja) se posiciona y escala con estilos absolutos
-  // (data-crop-x/y/w/h). Redimensionar la caja mientras se recorta solo
-  // cambia el tamaño del "visor" -- la imagen se queda fija debajo -- así
-  // que siempre se puede deshacer el recorte o volver a ajustarlo después.
+  // La imagen de origen nunca se modifica: dentro del "visor" (el contenido de
+  // la caja, o el cuerpo del marco) se posiciona y escala con estilos absolutos
+  // (data-crop-x/y/w/h). Mientras se recorta, mover un borde cambia solo el
+  // tamaño del visor y la imagen se queda quieta; fuera del recorte, cambiar el
+  // tamaño de la caja escala el recorte junto con ella.
+
+  private viewerEl(box: HTMLElement): HTMLElement | null {
+    return box.dataset.type === 'frame'
+      ? box.querySelector<HTMLElement>('.shape-body')
+      : box.querySelector<HTMLElement>('.floating-box-content');
+  }
+
+  private cropImg(box: HTMLElement): HTMLImageElement | null {
+    return this.viewerEl(box)?.querySelector<HTMLImageElement>('img') ?? null;
+  }
+
+  private canCrop(box: HTMLElement): boolean {
+    return box.dataset.type === 'image' || (box.dataset.type === 'frame' && !!box.dataset.hasImg);
+  }
 
   private applyCropStyle(box: HTMLElement) {
-    const img = box.querySelector<HTMLImageElement>('img');
+    const img = this.cropImg(box);
     if (!img) return;
-    const w = parseFloat(box.dataset.cropW || '0');
-    const h = parseFloat(box.dataset.cropH || '0');
-    const x = parseFloat(box.dataset.cropX || '0');
-    const y = parseFloat(box.dataset.cropY || '0');
     img.style.position = 'absolute';
     img.style.maxWidth = 'none';
-    img.style.left = `${x}px`;
-    img.style.top = `${y}px`;
-    img.style.width = `${w}px`;
-    img.style.height = `${h}px`;
+    img.style.left = `${parseFloat(box.dataset.cropX || '0')}px`;
+    img.style.top = `${parseFloat(box.dataset.cropY || '0')}px`;
+    img.style.width = `${parseFloat(box.dataset.cropW || '0')}px`;
+    img.style.height = `${parseFloat(box.dataset.cropH || '0')}px`;
     img.classList.remove('w-full', 'h-full');
   }
 
+  private captureCrop(box: HTMLElement) {
+    if (!box.dataset.cropW) return null;
+    const el = this.viewerEl(box);
+    if (!el) return null;
+    return {
+      vw: el.clientWidth,
+      vh: el.clientHeight,
+      cw: parseFloat(box.dataset.cropW || '0'),
+      ch: parseFloat(box.dataset.cropH || '0'),
+      cx: parseFloat(box.dataset.cropX || '0'),
+      cy: parseFloat(box.dataset.cropY || '0'),
+    };
+  }
+
+  /** Mantiene coherente el recorte cuando cambia el tamaño de la caja. */
+  private adaptCrop(
+    box: HTMLElement,
+    st: { vw: number; vh: number; cw: number; ch: number; cx: number; cy: number },
+    dLeft: number,
+    dTop: number,
+    cropping: boolean
+  ) {
+    if (cropping) {
+      box.dataset.cropX = String(st.cx - dLeft);
+      box.dataset.cropY = String(st.cy - dTop);
+      this.applyCropStyle(box);
+      return;
+    }
+    this.rescaleCrop(box, st);
+  }
+
+  private rescaleCrop(box: HTMLElement, st: { vw: number; vh: number; cw: number; ch: number; cx: number; cy: number }) {
+    const el = this.viewerEl(box);
+    if (!el || !st.vw || !st.vh) return;
+    const vw = el.clientWidth;
+    const vh = el.clientHeight;
+    if (box.dataset.type === 'frame') {
+      // La imagen del marco nunca se deforma: se reajusta conservando zoom y centro.
+      const natW = parseFloat(box.dataset.natW || '0');
+      const natH = parseFloat(box.dataset.natH || '0');
+      if (!natW || !natH) return;
+      const z = st.cw / (natW * Math.max(st.vw / natW, st.vh / natH));
+      const k = Math.max(vw / natW, vh / natH) * z;
+      const ncw = natW * k;
+      const nch = natH * k;
+      const rx = (st.cx + st.cw / 2) / st.vw;
+      const ry = (st.cy + st.ch / 2) / st.vh;
+      box.dataset.cropW = String(ncw);
+      box.dataset.cropH = String(nch);
+      box.dataset.cropX = String(rx * vw - ncw / 2);
+      box.dataset.cropY = String(ry * vh - nch / 2);
+    } else {
+      const rx = vw / st.vw;
+      const ry = vh / st.vh;
+      box.dataset.cropW = String(st.cw * rx);
+      box.dataset.cropH = String(st.ch * ry);
+      box.dataset.cropX = String(st.cx * rx);
+      box.dataset.cropY = String(st.cy * ry);
+    }
+    this.applyCropStyle(box);
+  }
+
   private enterCropMode(box: HTMLElement) {
-    if (box.dataset.type !== 'image') return;
+    if (!this.canCrop(box)) return;
     if (!box.dataset.cropW) {
+      const el = this.viewerEl(box);
       // Arranca mostrando exactamente lo que ya se veía (sin recorte).
-      box.dataset.cropW = String(box.offsetWidth);
-      box.dataset.cropH = String(box.offsetHeight);
+      box.dataset.cropW = String(el?.clientWidth ?? box.clientWidth);
+      box.dataset.cropH = String(el?.clientHeight ?? box.clientHeight);
       box.dataset.cropX = '0';
       box.dataset.cropY = '0';
     }
@@ -1258,32 +1699,36 @@ export class DocumentEditorEngine {
     this.publishToolbarState();
   }
 
-  /** Activa o desactiva el modo de recorte de la imagen seleccionada. */
+  /** Activa o desactiva el modo de recorte de la imagen (o marco con imagen) seleccionada. */
   toggleCropMode() {
-    const box = this.getSelectedBox() ?? (this.etTargetKind === 'box' ? this.etTarget : null);
-    if (!box || box.dataset.type !== 'image') return;
+    const box = this.getEtBox();
+    if (!box || !this.canCrop(box)) return;
     if (box.classList.contains('cropping')) this.exitCropMode(box);
     else this.enterCropMode(box);
   }
 
   /** Quita el recorte: la imagen vuelve a llenar la caja tal como estaba. */
   resetCrop() {
-    const box = this.getSelectedBox() ?? (this.etTargetKind === 'box' ? this.etTarget : null);
-    if (!box || box.dataset.type !== 'image') return;
-    delete box.dataset.cropW;
-    delete box.dataset.cropH;
-    delete box.dataset.cropX;
-    delete box.dataset.cropY;
+    const box = this.getEtBox();
+    if (!box || !this.canCrop(box)) return;
     box.classList.remove('cropping');
-    const img = box.querySelector<HTMLImageElement>('img');
-    if (img) {
-      img.style.position = '';
-      img.style.left = '';
-      img.style.top = '';
-      img.style.width = '';
-      img.style.height = '';
-      img.style.maxWidth = '';
-      img.classList.add('w-full', 'h-full');
+    if (box.dataset.type === 'frame') {
+      this.fitFrameImage(box, 'cover');
+    } else {
+      delete box.dataset.cropW;
+      delete box.dataset.cropH;
+      delete box.dataset.cropX;
+      delete box.dataset.cropY;
+      const img = this.cropImg(box);
+      if (img) {
+        img.style.position = '';
+        img.style.left = '';
+        img.style.top = '';
+        img.style.width = '';
+        img.style.height = '';
+        img.style.maxWidth = '';
+        img.classList.add('w-full', 'h-full');
+      }
     }
     this.commitNow();
     this.publishToolbarState();
@@ -1303,34 +1748,43 @@ export class DocumentEditorEngine {
       box.dataset.cropY = String(startCy + (ev.clientY - startY) / this.zoom);
       this.applyCropStyle(box);
     };
-    const onUp = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+    this.track(onMove, () => {
       this.busy = false;
       this.commitNow();
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    });
   }
 
-  /** Acerca/aleja el recorte (rueda del mouse) manteniendo su centro fijo. */
+  /** Acerca/aleja el recorte manteniendo su centro fijo. */
   zoomCrop(box: HTMLElement, factor: number) {
     if (!box.dataset.cropW) return;
+    const el = this.viewerEl(box);
     const w = parseFloat(box.dataset.cropW || '0');
     const h = parseFloat(box.dataset.cropH || '0');
     const x = parseFloat(box.dataset.cropX || '0');
     const y = parseFloat(box.dataset.cropY || '0');
-    const minW = box.offsetWidth;
-    const minH = box.offsetHeight;
+    const isFrame = box.dataset.type === 'frame';
+    // Una imagen suelta no puede quedar más chica que su visor; la de un marco sí (hasta 20 %).
+    const minK = isFrame ? 0.2 : 1;
+    const minW = (el?.clientWidth ?? 0) * minK;
+    const minH = (el?.clientHeight ?? 0) * minK;
     const cx = x + w / 2;
     const cy = y + h / 2;
-    const newW = Math.max(minW, w * factor);
-    const newH = Math.max(minH, h * factor);
+    const k = Math.max(factor, Math.max(minW / w, minH / h));
+    const newW = w * k;
+    const newH = h * k;
     box.dataset.cropW = String(newW);
     box.dataset.cropH = String(newH);
     box.dataset.cropX = String(cx - newW / 2);
     box.dataset.cropY = String(cy - newH / 2);
     this.applyCropStyle(box);
+  }
+
+  /** Botones de acercar/alejar durante el recorte (útil en celular, sin rueda del mouse). */
+  cropZoomStep(direction: 1 | -1) {
+    const box = this.getEtBox();
+    if (!box || !box.classList.contains('cropping')) return;
+    this.zoomCrop(box, direction > 0 ? 1.12 : 1 / 1.12);
+    this.commitNow();
   }
 
   private initFloatingBox(box: HTMLElement) {
@@ -1342,6 +1796,7 @@ export class DocumentEditorEngine {
     box.querySelector<HTMLElement>('.floating-box-remove')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.removeFloatingBox(box);
+      this.commitNow();
     });
     box.querySelector<HTMLElement>('.floating-box-duplicate')?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1353,14 +1808,25 @@ export class DocumentEditorEngine {
       this.startBoxMove(box, e as PointerEvent);
     });
 
-    // Las imágenes también se arrastran desde la propia imagen (o, si se
-    // está recortando, arrastrar la imagen mueve el recorte, no la hoja). Los
-    // textos no: ahí un clic debe colocar el cursor para escribir.
-    if (box.dataset.type === 'image') {
+    // Imágenes, formas y marcos también se arrastran desde su propio cuerpo (si se
+    // está recortando, arrastrar mueve la imagen dentro del recorte). Los textos
+    // no: ahí un clic debe colocar el cursor para escribir.
+    const type = box.dataset.type;
+    if (type === 'image' || type === 'shape' || type === 'frame') {
       const content = box.querySelector<HTMLElement>('.floating-box-content');
       content?.addEventListener('pointerdown', (e) => {
-        if (box.classList.contains('cropping')) this.startCropPan(box, e as PointerEvent);
-        else this.startBoxMove(box, e as PointerEvent);
+        const pe = e as PointerEvent;
+        // En pantalla táctil, el primer toque solo selecciona: así se puede seguir
+        // desplazando la hoja con el dedo sin arrastrar la imagen sin querer.
+        if (pe.pointerType === 'touch' && !box.classList.contains('box-selected')) return;
+        if (box.classList.contains('cropping')) this.startCropPan(box, pe);
+        else {
+          this.startBoxMove(
+            box,
+            pe,
+            type === 'frame' ? () => { if (!box.dataset.hasImg) this.pickFrameImage(box); } : undefined
+          );
+        }
       });
       content?.addEventListener(
         'wheel',
@@ -1428,10 +1894,14 @@ export class DocumentEditorEngine {
       boxType,
       fontFamily: editable?.style.fontFamily || this.currentFont,
       fontSize: editable?.style.fontSize?.replace('px', '') || '16',
-      fill: isBox && boxType !== 'image' ? this.toHex(this.etTarget.style.backgroundColor) : '',
+      fill:
+        isBox && (boxType === 'text' || boxType === 'caption') ? this.toHex(this.etTarget.style.backgroundColor) : '',
       captionGap: img && img.dataset.linkedCaptionId ? this.capGapOf(img) : null,
-      cropping: boxType === 'image' ? this.etTarget.classList.contains('cropping') : false,
-      hasCrop: boxType === 'image' ? !!this.etTarget.dataset.cropW : false,
+      cropping: boxType === 'image' || boxType === 'frame' ? this.etTarget.classList.contains('cropping') : false,
+      hasCrop:
+        boxType === 'image' ? !!this.etTarget.dataset.cropW : boxType === 'frame' ? !!this.etTarget.dataset.hasImg : false,
+      imageRadiusPct: boxType === 'image' ? parseFloat(this.etTarget.dataset.rad || '0') || 0 : null,
+      shape: boxType === 'shape' || boxType === 'frame' ? this.readShape(this.etTarget) : null,
     };
     this.listeners.onToolbarStateChange?.(state);
   }
@@ -1485,7 +1955,7 @@ export class DocumentEditorEngine {
   /** Pinta la casilla de un cuadro de texto / pie de foto (null = sin relleno). */
   etSetFill(color: string | null) {
     const t = this.etTarget;
-    if (!t || this.etTargetKind !== 'box' || t.dataset.type === 'image') return;
+    if (!t || this.etTargetKind !== 'box' || !(t.dataset.type === 'text' || t.dataset.type === 'caption')) return;
     t.style.backgroundColor = color ?? '';
     this.publishToolbarState();
   }
@@ -1551,7 +2021,7 @@ export class DocumentEditorEngine {
 
   private serializeState(): string {
     const clone = this.pagesWrapper.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.margin-guide').forEach((e) => e.remove());
+    clone.querySelectorAll('.margin-guide, .page-folio').forEach((e) => e.remove());
     clone.querySelectorAll('.box-selected').forEach((e) => e.classList.remove('box-selected'));
     clone.querySelectorAll('.page-active').forEach((e) => e.classList.remove('page-active'));
     clone.querySelectorAll('[data-initialized]').forEach((e) => e.removeAttribute('data-initialized'));
@@ -1759,13 +2229,34 @@ export class DocumentEditorEngine {
 
   // ===================== ZOOM =====================
 
+  /** Zoom elegido por la persona (desactiva el ajuste automático al ancho). */
   setZoom(percent: number) {
-    const z = Math.min(3, Math.max(0.25, percent / 100));
+    this.autoFit = false;
+    this.applyZoom(percent / 100);
+  }
+
+  private applyZoom(raw: number) {
+    const z = Math.min(3, Math.max(0.25, raw));
+    if (Math.abs(z - this.zoom) < 0.004) return;
     this.zoom = z;
     this.pagesWrapper.style.transformOrigin = 'top left';
     this.pagesWrapper.style.transform = z === 1 ? '' : `scale(${z})`;
+    this.pagesWrapper.style.setProperty('--z', String(z));
     this.syncZoomShell();
     this.listeners.onZoomChange?.(Math.round(z * 100));
+  }
+
+  /** Ajusta el zoom para que la hoja más ancha quepa en la pantalla (pensado para celulares). */
+  fitToWidth() {
+    this.autoFit = true;
+    const cs = getComputedStyle(this.scrollContainer);
+    const avail = this.scrollContainer.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    let widest = 0;
+    this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((p) => {
+      widest = Math.max(widest, p.offsetWidth);
+    });
+    if (!widest || avail <= 0) return;
+    this.applyZoom(Math.min(1, avail / widest));
   }
 
   private syncZoomShell() {
@@ -1778,6 +2269,87 @@ export class DocumentEditorEngine {
     if (!e.ctrlKey) return;
     e.preventDefault();
     this.setZoom(this.zoom * 100 + (e.deltaY < 0 ? 5 : -5));
+  }
+
+  // Pellizco con dos dedos para acercar/alejar.
+  private touchDistance(e: TouchEvent): number {
+    const [a, b] = [e.touches[0], e.touches[1]];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  private handleTouchStart(e: TouchEvent) {
+    if (e.touches.length === 2) this.pinch = { d0: this.touchDistance(e), z0: this.zoom };
+  }
+
+  private handleTouchMove(e: TouchEvent) {
+    if (!this.pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    this.autoFit = false;
+    this.applyZoom(this.pinch.z0 * (this.touchDistance(e) / Math.max(this.pinch.d0, 1)));
+  }
+
+  private handleTouchEnd(e: TouchEvent) {
+    if (e.touches.length < 2) this.pinch = null;
+  }
+
+  // ===================== FOLIADO (numeración de páginas) =====================
+
+  getFolioConfig(): FolioConfig {
+    return this.folioCfg;
+  }
+
+  setFolioConfig(cfg: FolioConfig) {
+    this.folioCfg = cfg;
+    this.scheduleFolios();
+  }
+
+  private scheduleFolios() {
+    if (this.folioRaf) return;
+    this.folioRaf = requestAnimationFrame(() => {
+      this.folioRaf = 0;
+      void this.renderFolios();
+    });
+  }
+
+  /** Dibuja (o quita) el folio de cada hoja. Es una capa visual: no entra al historial. */
+  private async renderFolios() {
+    const token = ++this.folioToken;
+    const cfg = this.folioCfg;
+    const pages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    if (!cfg.enabled) {
+      pages.forEach((p) => p.querySelectorAll(':scope > .page-folio').forEach((el) => el.remove()));
+      return;
+    }
+    const styleKey = JSON.stringify({ ...cfg, enabled: false, order: 0, start: 0, skipFirst: 0, template: '' });
+    if (this.folioCache.size > 300) this.folioCache.clear();
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const text = folioText(i, pages.length, cfg);
+      let img = page.querySelector<HTMLImageElement>(':scope > .page-folio');
+      if (!text) {
+        img?.remove();
+        continue;
+      }
+      const key = `${styleKey}|${text}`;
+      let badge = this.folioCache.get(key);
+      if (!badge) {
+        const b = await renderFolioBadge(text, cfg, 3);
+        badge = { url: b.canvas.toDataURL('image/png'), w: b.w, h: b.h };
+        this.folioCache.set(key, badge);
+      }
+      if (token !== this.folioToken) return; // llegó una configuración más nueva
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'page-folio';
+        img.draggable = false;
+        img.alt = '';
+        img.setAttribute('contenteditable', 'false');
+        page.appendChild(img);
+      }
+      const pos = folioPosition(cfg, page.clientWidth, page.clientHeight, badge.w, badge.h);
+      if (img.src !== badge.url) img.src = badge.url;
+      img.style.cssText = `position:absolute;z-index:40;pointer-events:none;user-select:none;left:${Math.round(pos.x)}px;top:${Math.round(pos.y)}px;width:${badge.w}px;height:${badge.h}px;`;
+    }
   }
 
   // ===================== EXPORTACIÓN A PDF =====================
