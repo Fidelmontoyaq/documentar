@@ -4,10 +4,12 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, Sticker,
 } from 'lucide-react';
 import { groupedFontOptions } from '../../engine/fontCatalog';
-import type { ToolbarState } from '../../types/documentEditor';
+import { useState } from 'react';
+import { sizeLabel } from '../../engine/pageSizes';
+import type { PageInfo, ToolbarState } from '../../types/documentEditor';
 
 const FONT_SIZES = ['10', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48', '64', '96'];
 
@@ -40,6 +42,9 @@ interface ElementToolbarProps {
   onPickFrameImage: () => void;
   onClearFrameImage: () => void;
   onFrameFit: (mode: 'cover' | 'contain') => void;
+  pageInfo: PageInfo | null;
+  onOpenCanvas: () => void;
+  onSticker: (opts: { width: number; color: string; shadow: boolean } | null) => void;
 }
 
 /**
@@ -54,8 +59,12 @@ export function ElementToolbar({
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
   onToggleCrop, onResetCrop, onCropZoom, onRadius, onShapeProps, onToggleSide, onAllSides,
-  onPickFrameImage, onClearFrameImage, onFrameFit,
+  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker,
 }: ElementToolbarProps) {
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [stW, setStW] = useState(8);
+  const [stColor, setStColor] = useState('#ffffff');
+  const [stShadow, setStShadow] = useState(true);
   const { recent, rest } = groupedFontOptions(recentFonts);
   const isBox = state?.isBox ?? false;
   const isImage = state?.boxType === 'image';
@@ -75,6 +84,17 @@ export function ElementToolbar({
       data-element-toolbar
       className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800 px-2 md:px-3 py-2 flex items-center gap-1 md:flex-wrap overflow-x-auto md:overflow-visible min-h-[52px] [&>*]:shrink-0"
     >
+      <button
+        type="button"
+        className="et-btn gap-1.5 !bg-slate-800 border border-slate-700 !text-slate-100"
+        title="Tamaño y fondo de la hoja (lienzo)"
+        onMouseDown={keep}
+        onClick={onOpenCanvas}
+      >
+        <Ruler className="w-4 h-4 text-blue-400" />
+        <span className="whitespace-nowrap">{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
+      </button>
+      <div className="et-sep" />
       {b('Deshacer (Ctrl+Z)', onUndo, <Undo2 className="w-4 h-4" />, !history.canUndo)}
       {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
       <div className="et-sep" />
@@ -213,6 +233,15 @@ export function ElementToolbar({
             title="Redondear las esquinas de la imagen"
           />
           <span className="text-[11px] text-slate-500 w-8">{Math.round(state?.imageRadiusPct ?? 0)}%</span>
+          <button
+            type="button"
+            className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`}
+            title="Borde de sticker: contorno alrededor de la figura"
+            onMouseDown={keep}
+            onClick={() => setStickerOpen((v) => !v)}
+          >
+            <Sticker className="w-4 h-4" /> <span>Sticker</span>
+          </button>
         </>
       )}
 
@@ -340,6 +369,33 @@ export function ElementToolbar({
           {b('Enviar atrás', () => onLayer('back'), <ArrowDownWideNarrow className="w-4 h-4" />)}
           {b('Eliminar (Supr)', onDelete, <Trash2 className="w-4 h-4" />, false, 'hover:!bg-rose-600')}
         </>
+      )}
+      {isImage && stickerOpen && (
+        <div
+          data-keep-selection
+          className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-white">Borde de sticker</span>
+            <button type="button" className="text-slate-400 hover:text-white text-xs" onClick={() => setStickerOpen(false)}>Cerrar</button>
+          </div>
+          <p className="text-[11px] text-slate-400">Funciona mejor con imágenes PNG de fondo transparente. Se dibuja de verdad, así sale en el PNG exportado.</p>
+          <label className="block text-[11px] text-slate-400">Grosor: {stW}px
+            <input type="range" min={2} max={40} value={stW} onChange={(e) => setStW(Number(e.target.value))} className="zoom-range !w-full mt-1" />
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-[11px] text-slate-400">Color
+              <input type="color" value={stColor} onChange={(e) => setStColor(e.target.value)} className="w-9 h-7 bg-slate-800 border border-slate-700 rounded cursor-pointer" />
+            </label>
+            <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={stShadow} onChange={(e) => setStShadow(e.target.checked)} /> Sombra
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => onSticker({ width: stW, color: stColor, shadow: stShadow })} className="flex-1 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white">Aplicar</button>
+            <button type="button" onClick={() => onSticker(null)} className="px-3 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Quitar</button>
+          </div>
+        </div>
       )}
     </div>
   );

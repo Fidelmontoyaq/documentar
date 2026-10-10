@@ -167,7 +167,7 @@ export function IconRail({
       <button
         type="button"
         onClick={onExportPDF}
-        title="Exportar a PDF"
+        title="Exportar (PDF, PNG o JPG)"
         className="flex flex-col items-center gap-1 py-3 text-emerald-400 hover:text-white hover:bg-emerald-600/30 rounded-lg mx-1 transition max-md:shrink-0 max-md:w-[62px] max-md:py-2 max-md:mx-0"
       >
         <FileDown className="w-5 h-5" />

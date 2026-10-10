@@ -9,6 +9,8 @@ import { ElementToolbar } from './ElementToolbar';
 import { LoadingOverlay } from './LoadingOverlay';
 import { SignaturePad } from './SignaturePad';
 import { FolioModal } from './FolioModal';
+import { CanvasPanel } from './CanvasPanel';
+import { ExportDialog } from './ExportDialog';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
 
@@ -28,6 +30,7 @@ export function DocumentEditorApp() {
     zoom,
     history,
     toolbarState,
+    pageInfo,
     loading,
     errorMessage,
     clearError,
@@ -40,6 +43,8 @@ export function DocumentEditorApp() {
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [folioOpen, setFolioOpen] = useState(false);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [folioActive, setFolioActive] = useState(false);
   const [imageMode, setImageMode] = useState<ImagesPerPageMode>('1');
   const [fontValue, setFontValue] = useState(DEFAULT_FONT);
@@ -103,7 +108,7 @@ export function DocumentEditorApp() {
           onAddPage={() => engine?.addNewPage()}
           onOpenSignature={() => setSignatureOpen(true)}
           onOpenOrganizer={() => setOrganizerOpen(true)}
-          onExportPDF={() => engine?.exportToPDF()}
+          onExportPDF={() => setExportOpen(true)}
           onToggleFormatPanel={() => setSidePanelOpen((v) => !v)}
           formatPanelOpen={sidePanelOpen}
           imageCount={imageCount}
@@ -174,6 +179,9 @@ export function DocumentEditorApp() {
             onPickFrameImage={() => engine?.pickFrameImage()}
             onClearFrameImage={() => engine?.clearFrameImage()}
             onFrameFit={(mode) => engine?.frameFit(mode)}
+            pageInfo={pageInfo}
+            onOpenCanvas={() => setCanvasOpen(true)}
+            onSticker={(o) => void engine?.setStickerBorder(o)}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
           <EditorCanvas
@@ -248,6 +256,15 @@ export function DocumentEditorApp() {
         onConfirm={(dataUrl) => {
           void engine?.insertFloatingImage(dataUrl);
         }}
+      />
+
+      <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} />
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={(o) => void engine?.exportDocument(o)}
+        pageCount={pageCount}
+        info={pageInfo}
       />
 
       <FolioModal
