@@ -1,0 +1,199 @@
+/*
+  Solo va aquí lo que Tailwind no puede expresar con clases de utilidad:
+  1) La carga de las tipografías de Google Fonts del catálogo.
+  2) El estilo de la barra de scroll (no existe utilidad nativa sin plugin).
+  3) La clase "fantasma" que exige SortableJS al arrastrar (debe ser una sola clase).
+  4) Los títulos (H1/H2/H3) que se insertan dentro del documento, para que
+     luzcan como los títulos de un documento Word real, sin cuadrícula ni sombra.
+  5) Ocultar, también al imprimir con Ctrl+P, el texto de ejemplo ("placeholder")
+     de los pies de foto y cuadros de texto vacíos, para que nunca se imprima solo.
+  6) Mostrar el marco y los controladores de un elemento flotante (imagen, pie de
+     foto o cuadro de texto) solo cuando está seleccionado.
+*/
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;500;700&family=Open+Sans:wght@400;600&family=Roboto:wght@400;500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&family=Tinos:ital,wght@0,400;0,700;1,400&family=Arimo:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&display=swap');
+
+.doc-editor ::-webkit-scrollbar { width: 8px; height: 8px; }
+.doc-editor ::-webkit-scrollbar-track { background: #1e293b; }
+.doc-editor ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+.doc-editor ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+.sortable-ghost { opacity: 0.4; border: 2px dashed #3b82f6 !important; }
+
+.page-content h1, .page-content h2, .page-content h3 {
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+  color: #1f4e79;
+  font-weight: 600;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+.page-content h1 { font-size: 28px; margin: 22px 0 10px; }
+.page-content h2 { font-size: 22px; margin: 18px 0 8px; }
+.page-content h3 { font-size: 18px; margin: 14px 0 6px; }
+.page-content h4, .page-content h5, .page-content h6 {
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+  color: #1f4e79; font-weight: 600; border: none; box-shadow: none; background: transparent;
+}
+.page-content h4 { font-size: 16px; margin: 12px 0 5px; }
+.page-content h5 { font-size: 14px; margin: 10px 0 4px; }
+.page-content h6 { font-size: 13px; margin: 8px 0 4px; }
+.page-content blockquote {
+  border-left: 3px solid #94a3b8; margin: 10px 0; padding: 4px 14px; color: #475569; font-style: italic;
+}
+.page-content table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.page-content table td, .page-content table th { border: 1px solid #cbd5e1; padding: 6px 8px; }
+
+@media print {
+  .has-placeholder::before { content: none !important; }
+}
+body.exporting .has-placeholder::before { content: none !important; }
+
+.page-content.has-placeholder:empty::before { content: attr(data-placeholder); color: #94a3b8; pointer-events: none; }
+
+.floating-box { border: 2px solid transparent; cursor: default; }
+.floating-box[data-type="image"] { cursor: move; }
+.floating-box.box-selected { border-color: #7c3aed; }
+.floating-box .floating-box-handle,
+.floating-box .floating-box-ctrl,
+.floating-box .floating-box-rotate { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.floating-box.box-selected .floating-box-handle,
+.floating-box.box-selected .floating-box-ctrl,
+.floating-box.box-selected .floating-box-rotate { opacity: 1; pointer-events: auto; }
+
+.floating-box-ctrl { position: absolute; width: 11px; height: 11px; background: #fff; border: 2px solid #7c3aed; border-radius: 9999px; z-index: 21; }
+.floating-box-ctrl.ctrl-nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.floating-box-ctrl.ctrl-ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.floating-box-ctrl.ctrl-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.floating-box-ctrl.ctrl-se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+.floating-box-ctrl.ctrl-n { top: -6px; left: 50%; width: 24px; height: 9px; margin-left: -12px; border-radius: 6px; cursor: ns-resize; }
+.floating-box-ctrl.ctrl-s { bottom: -6px; left: 50%; width: 24px; height: 9px; margin-left: -12px; border-radius: 6px; cursor: ns-resize; }
+.floating-box-ctrl.ctrl-e { right: -6px; top: 50%; width: 9px; height: 24px; margin-top: -12px; border-radius: 6px; cursor: ew-resize; }
+.floating-box-ctrl.ctrl-w { left: -6px; top: 50%; width: 9px; height: 24px; margin-top: -12px; border-radius: 6px; cursor: ew-resize; }
+
+.floating-box-rotate { position: absolute; top: -30px; left: 50%; margin-left: -9px; width: 18px; height: 18px; border-radius: 9999px; background: #7c3aed; color: #fff; display: flex; align-items: center; justify-content: center; cursor: grab; z-index: 21; font-size: 11px; line-height: 1; }
+.floating-box-rotate::before { content: ''; position: absolute; bottom: -13px; left: 50%; width: 1px; height: 13px; background: #7c3aed; }
+
+.element-toolbar .et-btn { min-width: 30px; height: 30px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 6px; color: #cbd5e1; font-size: 12px; }
+.element-toolbar .et-btn:disabled { opacity: .3; pointer-events: none; }
+.element-toolbar .et-btn:hover { background: #334155; color: #fff; }
+.element-toolbar .et-sep { width: 1px; align-self: stretch; background: #475569; margin: 0 2px; }
+
+
+/* Hoja donde está el usuario (destino de imágenes/textos nuevos) */
+.a4-page.page-active { outline: 2px solid rgba(96, 165, 250, 0.45); outline-offset: 4px; }
+
+/* Guía de márgenes: solo existe mientras se arrastra o redimensiona un elemento */
+.margin-guide { position: absolute; pointer-events: none; z-index: 5; border: 1.5px dashed #3b82f6; background: rgba(59, 130, 246, 0.04); transition: border-color .1s, background .1s; }
+.margin-guide.guide-out { border-color: #ef4444; background: rgba(239, 68, 68, 0.06); }
+
+/* Barra de zoom: control deslizante con bolita */
+.zoom-range { -webkit-appearance: none; appearance: none; width: 140px; height: 4px; border-radius: 9999px; background: #475569; outline: none; cursor: pointer; }
+.zoom-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab; }
+.zoom-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #3b82f6; border: 2px solid #fff; cursor: grab; }
+
+/* Organizador de páginas: animación de arrastre y del check al (des)marcar */
+.thumb-dragging { opacity: .35; transform: scale(.94); }
+/* Una sola vez al aparecer, no en bucle: evita la sensación de "parpadeo constante". */
+.thumb-drop-line { animation: dropLineIn 150ms ease-out; }
+@keyframes dropLineIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+.check-pop { animation: checkPop 160ms ease-out; }
+@keyframes checkPop { 0% { transform: scale(.5); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }
+
+/* Modo de recorte de imagen */
+.floating-box.cropping { outline: 2px dashed #f59e0b; outline-offset: 2px; cursor: move; }
+.floating-box.cropping .floating-box-content { cursor: move; }
+.floating-box.cropping .floating-box-ctrl { background: #f59e0b; border-color: #fff; }
+.floating-box.cropping .floating-box-content img { user-select: none; -webkit-user-drag: none; }
+
+/* ===== Recorte: el contenido necesita ser el contenedor de la imagen para que se recorte de verdad ===== */
+.floating-box-content { position: relative; }
+.floating-box-content img { max-width: none; }
+
+/* ===== Formas y marcos ===== */
+.shape-body { position: relative; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+.frame-slot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #64748b; font-size: 11px; text-align: center; padding: 8px; pointer-events: none; }
+.frame-body.has-img .frame-slot, .floating-box[data-has-img] .frame-slot { display: none; }
+body.exporting .frame-slot { display: none; }
+@media print { .frame-slot { display: none; } }
+.floating-box[data-type="shape"], .floating-box[data-type="frame"] { cursor: move; }
+.floating-box[data-type="shape"] .floating-box-content, .floating-box[data-type="frame"] .floating-box-content { overflow: visible; }
+.floating-box[data-type="frame"] .shape-body { overflow: hidden; }
+
+/* Folio dibujado sobre la hoja */
+.page-folio { display: block; }
+
+/* ===== Móvil / pantallas táctiles ===== */
+.floating-box.box-selected,
+.floating-box .floating-box-ctrl,
+.floating-box .floating-box-rotate,
+.floating-box .floating-box-handle { touch-action: none; }
+.floating-box { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.floating-box[data-type="text"], .floating-box[data-type="caption"] { -webkit-user-select: text; user-select: text; }
+#editorContainer { overscroll-behavior: contain; touch-action: pan-x pan-y; }
+
+@media (pointer: coarse) {
+  .floating-box-ctrl { width: 22px; height: 22px; }
+  .floating-box-ctrl.ctrl-nw { top: -12px; left: -12px; }
+  .floating-box-ctrl.ctrl-ne { top: -12px; right: -12px; }
+  .floating-box-ctrl.ctrl-sw { bottom: -12px; left: -12px; }
+  .floating-box-ctrl.ctrl-se { bottom: -12px; right: -12px; }
+  .floating-box-ctrl.ctrl-n, .floating-box-ctrl.ctrl-s { width: 40px; height: 16px; margin-left: -20px; }
+  .floating-box-ctrl.ctrl-n { top: -10px; } .floating-box-ctrl.ctrl-s { bottom: -10px; }
+  .floating-box-ctrl.ctrl-e, .floating-box-ctrl.ctrl-w { width: 16px; height: 40px; margin-top: -20px; }
+  .floating-box-ctrl.ctrl-e { right: -10px; } .floating-box-ctrl.ctrl-w { left: -10px; }
+  .floating-box-rotate { width: 28px; height: 28px; margin-left: -14px; top: -46px; font-size: 15px; }
+  .floating-box-rotate::before { bottom: -17px; height: 17px; }
+  .floating-box .floating-box-handle { padding: 6px 8px; top: -38px; }
+  .floating-box .floating-box-handle button { padding: 4px 8px; font-size: 13px; }
+  /* Los botones laterales de la hoja se ven solo en la hoja activa y dentro de la pantalla */
+  .a4-page [data-page-toolbar] { right: 6px !important; top: 6px !important; flex-direction: row !important; opacity: 0; pointer-events: none; }
+  .a4-page.page-active [data-page-toolbar] { opacity: .92; pointer-events: auto; }
+}
+
+/* Con zoom bajo (celular), los controladores se agrandan para seguir siendo fáciles de tocar */
+@media (pointer: coarse) {
+  .floating-box-ctrl, .floating-box-rotate { transform: scale(min(2.4, calc(1 / var(--z, 1)))); }
+}
+
+/* ===== Lienzo: fondo transparente (tablero), lienzos de diseño, guías ===== */
+.a4-page.page-transparent {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%, transparent 75%, #e5e7eb 75%),
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%, transparent 75%, #e5e7eb 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+body.exporting .a4-page.page-transparent { background: transparent !important; }
+body.exporting .a4-page { box-shadow: none !important; outline: none !important; transition: none !important; }
+
+/* En un lienzo de diseño no hay título, texto ni pie salvo que se activen */
+.a4-page[data-kind="design"]:not([data-hf="1"]) > .page-header,
+.a4-page[data-kind="design"]:not([data-hf="1"]) > .page-footer,
+.a4-page[data-kind="design"]:not([data-hf="1"]) > .page-content { display: none; }
+
+.show-grid .a4-page::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 3;
+  background-image: linear-gradient(rgba(59,130,246,.2) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,.2) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+body.exporting .show-grid .a4-page::after { display: none; }
+@media print { .show-grid .a4-page::after { display: none; } }
+
+.snap-line { position: absolute; pointer-events: none; z-index: 6; background: #ec4899; }
+.snap-line.snap-v { top: 0; bottom: 0; width: 1px; }
+.snap-line.snap-h { left: 0; right: 0; height: 1px; }
+
+/* Barras con scroll horizontal sin mostrar la barra */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ===== Editar texto de PDF en el sitio ===== */
+.pdf-edit-mode .a4-page[data-pdf-page="true"] { cursor: text; }
+.pdf-hover {
+  position: absolute; z-index: 28; pointer-events: none;
+  background: rgba(59, 130, 246, 0.14); outline: 1.5px solid rgba(59, 130, 246, 0.85); border-radius: 2px;
+}
+.pdf-edit-overlay { -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+.pdf-edit-overlay::selection { background: rgba(59, 130, 246, 0.35); }
+body.exporting .pdf-hover, body.exporting .pdf-edit-bg { display: none !important; }

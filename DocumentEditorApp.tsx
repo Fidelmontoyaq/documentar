@@ -1,0 +1,346 @@
+import { useEffect, useRef, useState } from 'react';
+import { PanelBottomClose, PanelBottomOpen } from 'lucide-react';
+import { useDocumentEditorEngine } from '../../hooks/useDocumentEditorEngine';
+import { readFileAsDataURL } from '../../engine/fileUtils';
+import { FONT_FILE_RE, addFontFiles } from '../../engine/fontLibrary';
+import { IconRail } from './IconRail';
+import { SidePanel, type PanelMode } from './SidePanel';
+import { EditorCanvas } from './EditorCanvas';
+import { PageOrganizerModal } from './PageOrganizerModal';
+import { ElementToolbar } from './ElementToolbar';
+import { LoadingOverlay } from './LoadingOverlay';
+import { SignaturePad } from './SignaturePad';
+import { FolioModal } from './FolioModal';
+import { CanvasPanel } from './CanvasPanel';
+import { ExportDialog } from './ExportDialog';
+import { RemoveBgDialog } from './RemoveBgDialog';
+import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
+import './documentEditor.css';
+
+const DEFAULT_FONT = "'Inter', sans-serif";
+const DEFAULT_MARGIN: MarginSelectValue = 'custom';
+const DEFAULT_MARGIN_CM = 2;
+
+/** Editor y Ensamblador de Documentos Avanzado. */
+export function DocumentEditorApp() {
+  const {
+    pagesWrapperRef,
+    scrollContainerRef,
+    toolbarRef,
+    engine,
+    pageCount,
+    imageCount,
+    zoom,
+    history,
+    toolbarState,
+    pageInfo,
+    loading,
+    errorMessage,
+    clearError,
+    notice,
+    setNotice,
+    pdfEditOn,
+    recentFonts,
+  } = useDocumentEditorEngine();
+
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [panel, setPanel] = useState<PanelMode | null>(null);
+  const [menuHidden, setMenuHidden] = useState(false);
+  const [bgEdit, setBgEdit] = useState<{ id: string; src: string } | null>(null);
+  const [organizerOpen, setOrganizerOpen] = useState(false);
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [folioOpen, setFolioOpen] = useState(false);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [folioActive, setFolioActive] = useState(false);
+  const [imageMode, setImageMode] = useState<ImagesPerPageMode>('1');
+  const [fontValue, setFontValue] = useState(DEFAULT_FONT);
+  const [marginValue, setMarginValue] = useState<MarginSelectValue>(DEFAULT_MARGIN);
+  const [customMarginCm, setCustomMarginCm] = useState(DEFAULT_MARGIN_CM);
+  const [gapDialog, setGapDialog] = useState<{ pageCount: number; docCount: number } | null>(null);
+  const [gapScope, setGapScope] = useState<'page' | 'document'>('document');
+  const [gapValue, setGapValue] = useState(8);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!errorMessage) return;
+    // Aviso simple: el prototipo original usaba alert(); aquí basta con la
+    // consola más un aviso efímero, para no bloquear la interfaz con modales.
+    const timeout = setTimeout(clearError, 4000);
+    return () => clearTimeout(timeout);
+  }, [errorMessage, clearError]);
+
+  const handleAddImages = async (files: File[]) => {
+    try {
+      if (files.length === 1) {
+        await engine?.insertFloatingImage(await readFileAsDataURL(files[0]));
+      } else {
+        // Varias a la vez: en la hoja actual, acomodadas automáticamente.
+        await engine?.handleFileSelect(files, 'current');
+      }
+    } catch (error) {
+      console.error('Error al leer las imágenes:', error);
+    }
+  };
+
+  const handleDropFiles = async (files: File[], x: number, y: number) => {
+    const fonts = files.filter((f) => FONT_FILE_RE.test(f.name));
+    const rest = files.filter((f) => !FONT_FILE_RE.test(f.name));
+    if (fonts.length) {
+      const res = await addFontFiles(fonts);
+      setNotice(res.added.length ? `Fuente añadida: ${res.added.map((a) => a.label).join(', ')}. Búscala en el selector de tipografía.` : res.errors[0] ?? null);
+    }
+    if (rest.length) await engine?.dropFiles(rest, x, y, imageMode);
+  };
+
+  const handleMarginChange = (value: MarginSelectValue) => {
+    setMarginValue(value);
+    if (value === 'custom') {
+      engine?.applyCustomMargin(customMarginCm);
+    } else {
+      engine?.changeGlobalMargin(value as MarginPresetClass);
+    }
+  };
+
+  const handleCustomMarginCmChange = (cm: number) => {
+    setCustomMarginCm(Number.isNaN(cm) ? 0 : cm);
+  };
+
+  const openGapDialog = (initialValue: number) => {
+    if (!engine) return;
+    setGapValue(initialValue);
+    setGapScope('document');
+    setGapDialog({
+      pageCount: engine.countLinkedCaptions('page'),
+      docCount: engine.countLinkedCaptions('document'),
+    });
+  };
+
+    return (
+    <div className="doc-editor h-[100dvh] flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
+      <div className="flex flex-1 min-h-0 overflow-hidden md:flex-row flex-col-reverse">
+        <IconRail
+          onOpenPanel={(m) => setPanel((cur) => (cur === m ? null : m))}
+          activePanel={panel}
+          hidden={menuHidden}
+          pdfEditOn={pdfEditOn}
+          onTogglePdfEdit={() => void engine?.setPdfEditMode(!pdfEditOn)}
+          onAddImages={handleAddImages}
+          onAddTextBox={() => engine?.insertFloatingTextBox()}
+          onAddPage={() => engine?.addNewPage()}
+          onOpenSignature={() => setSignatureOpen(true)}
+          onOpenOrganizer={() => setOrganizerOpen(true)}
+          onExportPDF={() => setExportOpen(true)}
+          imageCount={imageCount}
+          onArrange={(layout, perPage) => engine?.arrangeImages(layout, perPage)}
+          onInsertShape={(kind, size, filled) => engine?.insertShape(kind, size, filled)}
+          onInsertFrame={(kind, size) => engine?.insertFrame(kind, size)}
+          onOpenFolio={() => setFolioOpen(true)}
+          folioActive={folioActive}
+        />
+
+        <SidePanel
+          open={panel !== null}
+          mode={panel ?? 'import'}
+          onClose={() => setPanel(null)}
+          multiFileInputRef={multiFileInputRef}
+          onFilesSelected={(files) => engine?.handleFileSelect(files, imageMode)}
+          imageMode={imageMode}
+          onImageModeChange={setImageMode}
+          fontValue={fontValue}
+          recentFonts={recentFonts}
+          onFontChange={(value) => {
+            setFontValue(value);
+            engine?.changeGlobalFont(value);
+          }}
+          marginValue={marginValue}
+          onMarginChange={handleMarginChange}
+          customMarginCm={customMarginCm}
+          onCustomMarginCmChange={handleCustomMarginCmChange}
+          onApplyCustomMargin={() => engine?.applyCustomMargin(customMarginCm)}
+          onFormatText={(command, value) => engine?.formatText(command, value ?? null)}
+          onSaveSelection={() => engine?.saveCurrentSelection()}
+          onInsertPageNumber={() => engine?.insertPageNumberField()}
+          onOpenCaptionGapAll={() => openGapDialog(gapValue)}
+        />
+
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
+          <ElementToolbar
+            state={toolbarState}
+            history={history}
+            recentFonts={recentFonts}
+            onUndo={() => engine?.undo()}
+            onRedo={() => engine?.redo()}
+            onCopy={() => engine?.copySelection(false)}
+            onPaste={() => engine?.pasteClipboard()}
+            onFormat={(command, value) => engine?.etFormat(command, value ?? null)}
+            onApplyFont={(value) => engine?.etApplyFont(value)}
+            onApplyFontSize={(value) => engine?.etApplyFontSize(value)}
+            onSaveSelection={() => engine?.saveCurrentSelection()}
+            onDuplicate={() => engine?.etDuplicate()}
+            onLayer={(direction) => engine?.etLayer(direction)}
+            onDelete={() => engine?.etDelete()}
+            onSetFill={(color) => engine?.etSetFill(color)}
+            onCaptionGap={(px) => engine?.setCaptionGap(px)}
+            onCaptionReset={() => engine?.resetCaptionPlacement()}
+            onToggleCrop={() => engine?.toggleCropMode()}
+            onResetCrop={() => engine?.resetCrop()}
+            onCropZoom={(d) => engine?.cropZoomStep(d)}
+            onRadius={(pct) => engine?.setRadiusPct(pct)}
+            onShapeProps={(patch) => engine?.setShapeProps(patch)}
+            onToggleSide={(i) => engine?.toggleShapeSide(i)}
+            onAllSides={(on) => engine?.setShapeSides(on)}
+            onPickFrameImage={() => engine?.pickFrameImage()}
+            onClearFrameImage={() => engine?.clearFrameImage()}
+            onFrameFit={(mode) => engine?.frameFit(mode)}
+            pageInfo={pageInfo}
+            pdfEditOn={pdfEditOn}
+            onOpenCanvas={() => setCanvasOpen(true)}
+            onSticker={(o) => void engine?.setStickerBorder(o)}
+            onRemoveBg={() => {
+              const target = engine?.getEditableImage();
+              if (target) setBgEdit(target);
+            }}
+            onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
+          />
+          <button
+            type="button"
+            data-keep-selection
+            onClick={() => setMenuHidden((v) => !v)}
+            title={menuHidden ? 'Mostrar el menú' : 'Ocultar el menú (ver todo el lienzo)'}
+            className="md:hidden absolute z-30 left-2 bottom-16 flex items-center gap-1.5 bg-slate-900/95 border border-slate-700 text-slate-200 text-xs font-medium rounded-full pl-2.5 pr-3 py-2 shadow-xl"
+          >
+            {menuHidden ? <PanelBottomOpen className="w-4 h-4 text-blue-400" /> : <PanelBottomClose className="w-4 h-4" />}
+            {menuHidden ? 'Menú' : 'Ocultar'}
+          </button>
+          <EditorCanvas
+            scrollContainerRef={scrollContainerRef}
+            pagesWrapperRef={pagesWrapperRef}
+            zoom={zoom}
+            onZoomChange={(p) => engine?.setZoom(p)}
+            onFit={() => engine?.fitToWidth()}
+            onDropFiles={(f, x, y) => void handleDropFiles(f, x, y)}
+          />
+        </div>
+      </div>
+
+      <PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} history={history} />
+
+      {gapDialog && (
+        <div
+          data-keep-selection
+          className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center print:hidden"
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 w-[380px] max-w-[92vw]">
+            <h3 className="text-white font-bold text-base mb-1">¿Estás seguro?</h3>
+            <p className="text-sm text-slate-300 mb-3">
+              Vas a cambiar la separación entre cada imagen y su pie de foto en varias imágenes a la vez.
+            </p>
+            <label className="flex items-center gap-2 text-sm text-slate-200 mb-4">
+              Nueva separación:
+              <input
+                type="number"
+                autoFocus
+                value={gapValue}
+                onChange={(e) => setGapValue(Number(e.target.value) || 0)}
+                className="w-20 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 py-1.5 px-2 outline-none focus:border-blue-500"
+              />
+              <span className="text-slate-400">px</span>
+            </label>
+            <div className="space-y-2 mb-4">
+              {(
+                [
+                  ['document', `Todo el documento (${gapDialog.docCount} imágenes)`],
+                  ['page', `Solo esta hoja (${gapDialog.pageCount} imágenes)`],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+                  <input type="radio" name="gapScope" checked={gapScope === value} onChange={() => setGapScope(value)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 mb-4">Puedes deshacerlo con Ctrl+Z o el botón Deshacer.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setGapDialog(null)} className="px-4 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  engine?.applyCaptionGapToAll(gapValue, gapScope);
+                  setGapDialog(null);
+                }}
+                className="px-4 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white font-medium"
+              >
+                Sí, aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SignaturePad
+        isOpen={signatureOpen}
+        onClose={() => setSignatureOpen(false)}
+        onConfirm={(dataUrl) => {
+          void engine?.insertFloatingImage(dataUrl);
+        }}
+      />
+
+      <RemoveBgDialog
+        open={!!bgEdit}
+        src={bgEdit?.src ?? null}
+        onClose={() => setBgEdit(null)}
+        onApply={(dataUrl, w, h) => {
+          if (bgEdit) engine?.applyEditedImage(bgEdit.id, dataUrl, w, h);
+          setBgEdit(null);
+        }}
+      />
+
+      <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} />
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={(o) => void engine?.exportDocument(o)}
+        pageCount={pageCount}
+        info={pageInfo}
+      />
+
+      <FolioModal
+        open={folioOpen}
+        onClose={() => {
+          setFolioOpen(false);
+          setFolioActive(!!engine?.getFolioConfig().enabled);
+        }}
+        engine={engine}
+        pageCount={pageCount}
+        recentFonts={recentFonts}
+      />
+
+      <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
+
+      {notice && (
+        <div
+          onAnimationEnd={() => undefined}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden"
+          onClick={() => setNotice(null)}
+        >
+          {notice}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-rose-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden">
+          {errorMessage}
+        </div>
+      )}
+    </div>
+  );
+}
