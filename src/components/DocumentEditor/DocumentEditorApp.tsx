@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PanelBottomClose, PanelBottomOpen } from 'lucide-react';
 import { useDocumentEditorEngine } from '../../hooks/useDocumentEditorEngine';
 import { readFileAsDataURL } from '../../engine/fileUtils';
 import { FONT_FILE_RE, addFontFiles } from '../../engine/fontLibrary';
@@ -13,10 +14,6 @@ import { FolioModal } from './FolioModal';
 import { CanvasPanel } from './CanvasPanel';
 import { ExportDialog } from './ExportDialog';
 import { RemoveBgDialog } from './RemoveBgDialog';
-import { AboutModal, IosInstallHelp } from './AboutModal';
-import { GuidedTour, tourDisabled } from './GuidedTour';
-import { useTheme } from '../../engine/theme';
-import { useInstall } from '../../hooks/useInstall';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
 
@@ -49,13 +46,7 @@ export function DocumentEditorApp() {
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
   const [panel, setPanel] = useState<PanelMode | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const { mode: themeMode, setMode: setThemeMode } = useTheme();
-  const install = useInstall();
-  const seen = (() => { try { return localStorage.getItem('docucraft.seen') === '1'; } catch { return true; } })();
-  const [firstRun] = useState(!seen);
-  const [aboutOpen, setAboutOpen] = useState(!seen);
-  const [tourOpen, setTourOpen] = useState(false);
+  const [menuHidden, setMenuHidden] = useState(false);
   const [bgEdit, setBgEdit] = useState<{ id: string; src: string } | null>(null);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
@@ -85,21 +76,6 @@ export function DocumentEditorApp() {
     return () => clearTimeout(timeout);
   }, [errorMessage, clearError]);
 
-  const closeAbout = () => {
-    setAboutOpen(false);
-    try { localStorage.setItem('docucraft.seen', '1'); } catch { /* ignore */ }
-    if (firstRun && !tourDisabled()) setTourOpen(true);
-  };
-
-  /** Importa archivos; si entra un PDF se activa «Editar PDF» para poder tocar y corregir su texto. */
-  const importFiles = async (files: File[], mode: ImagesPerPageMode) => {
-    await engine?.handleFileSelect(files, mode);
-    if (files.some((f) => /\.pdf$/i.test(f.name)) && !pdfEditOn) {
-      await engine?.setPdfEditMode(true);
-      setNotice('PDF listo: toca un texto para editarlo. Con el botón «Editar PDF» lo apagas.');
-    }
-  };
-
   const handleAddImages = async (files: File[]) => {
     try {
       if (files.length === 1) {
@@ -120,10 +96,7 @@ export function DocumentEditorApp() {
       const res = await addFontFiles(fonts);
       setNotice(res.added.length ? `Fuente añadida: ${res.added.map((a) => a.label).join(', ')}. Búscala en el selector de tipografía.` : res.errors[0] ?? null);
     }
-    if (rest.length) {
-      await engine?.dropFiles(rest, x, y, imageMode);
-      if (rest.some((f) => /\.pdf$/i.test(f.name)) && !pdfEditOn) await engine?.setPdfEditMode(true);
-    }
+    if (rest.length) await engine?.dropFiles(rest, x, y, imageMode);
   };
 
   const handleMarginChange = (value: MarginSelectValue) => {
@@ -155,6 +128,7 @@ export function DocumentEditorApp() {
         <IconRail
           onOpenPanel={(m) => setPanel((cur) => (cur === m ? null : m))}
           activePanel={panel}
+          hidden={menuHidden}
           pdfEditOn={pdfEditOn}
           onTogglePdfEdit={() => void engine?.setPdfEditMode(!pdfEditOn)}
           onAddImages={handleAddImages}
@@ -169,17 +143,6 @@ export function DocumentEditorApp() {
           onInsertFrame={(kind, size) => engine?.insertFrame(kind, size)}
           onOpenFolio={() => setFolioOpen(true)}
           folioActive={folioActive}
-          onOpenCanvas={() => setCanvasOpen(true)}
-          onPageAction={(a) => engine?.pageAction(a)}
-          onGoToPage={(d) => engine?.goToPage(d)}
-          theme={themeMode}
-          onTheme={setThemeMode}
-          onOpenTour={() => setTourOpen(true)}
-          onOpenAbout={() => setAboutOpen(true)}
-          canInstall={install.canInstall}
-          onInstall={() => void install.install()}
-          drawerOpen={drawerOpen}
-          setDrawerOpen={setDrawerOpen}
         />
 
         <SidePanel
@@ -187,7 +150,7 @@ export function DocumentEditorApp() {
           mode={panel ?? 'import'}
           onClose={() => setPanel(null)}
           multiFileInputRef={multiFileInputRef}
-          onFilesSelected={(files) => { void importFiles(files, imageMode); setPanel(null); }}
+          onFilesSelected={(files) => engine?.handleFileSelect(files, imageMode)}
           imageMode={imageMode}
           onImageModeChange={setImageMode}
           fontValue={fontValue}
@@ -201,7 +164,10 @@ export function DocumentEditorApp() {
           customMarginCm={customMarginCm}
           onCustomMarginCmChange={handleCustomMarginCmChange}
           onApplyCustomMargin={() => engine?.applyCustomMargin(customMarginCm)}
+          onFormatText={(command, value) => engine?.formatText(command, value ?? null)}
+          onSaveSelection={() => engine?.saveCurrentSelection()}
           onInsertPageNumber={() => engine?.insertPageNumberField()}
+          onOpenCaptionGapAll={() => openGapDialog(gapValue)}
         />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
@@ -243,6 +209,16 @@ export function DocumentEditorApp() {
             }}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
+          <button
+            type="button"
+            data-keep-selection
+            onClick={() => setMenuHidden((v) => !v)}
+            title={menuHidden ? 'Mostrar el menú' : 'Ocultar el menú (ver todo el lienzo)'}
+            className="md:hidden absolute z-30 left-2 bottom-16 flex items-center gap-1.5 bg-slate-900/95 border border-slate-700 text-slate-200 text-xs font-medium rounded-full pl-2.5 pr-3 py-2 shadow-xl"
+          >
+            {menuHidden ? <PanelBottomOpen className="w-4 h-4 text-blue-400" /> : <PanelBottomClose className="w-4 h-4" />}
+            {menuHidden ? 'Menú' : 'Ocultar'}
+          </button>
           <EditorCanvas
             scrollContainerRef={scrollContainerRef}
             pagesWrapperRef={pagesWrapperRef}
@@ -348,16 +324,12 @@ export function DocumentEditorApp() {
         recentFonts={recentFonts}
       />
 
-      <AboutModal open={aboutOpen} onClose={closeAbout} onStartTour={() => setTourOpen(true)} canInstall={install.canInstall} onInstall={() => void install.install()} firstRun={firstRun && !tourDisabled()} />
-      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} engine={engine} onOpenCanvas={() => setCanvasOpen(true)} />
-      <IosInstallHelp open={install.iosHelp} onClose={install.closeIosHelp} />
-
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
 
       {notice && (
         <div
           onAnimationEnd={() => undefined}
-          className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden"
           onClick={() => setNotice(null)}
         >
           {notice}

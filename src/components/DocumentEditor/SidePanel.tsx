@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import {
-  X, UploadCloud, FileImage, SlidersHorizontal, Hash,
+  X, UploadCloud, FileImage, SlidersHorizontal, PenSquare, Bold, Italic, Underline, Strikethrough,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Hash, Rows,
 } from 'lucide-react';
 import { FontPicker } from './FontPicker';
 import type { ImagesPerPageMode, MarginSelectValue } from '../../types/documentEditor';
@@ -23,7 +24,10 @@ interface SidePanelProps {
   customMarginCm: number;
   onCustomMarginCmChange: (cm: number) => void;
   onApplyCustomMargin: () => void;
+  onFormatText: (command: string, value?: string | null) => void;
+  onSaveSelection: () => void;
   onInsertPageNumber: () => void;
+  onOpenCaptionGapAll: () => void;
 }
 
 export function SidePanel({
@@ -42,7 +46,10 @@ export function SidePanel({
   customMarginCm,
   onCustomMarginCmChange,
   onApplyCustomMargin,
+  onFormatText,
+  onSaveSelection,
   onInsertPageNumber,
+  onOpenCaptionGapAll,
 }: SidePanelProps) {
 
   return (
@@ -171,19 +178,74 @@ export function SidePanel({
           </div>
         </div>
 
-        {/* Insertar número de página (el estilo de texto, alineación y color están en la barra de arriba) */}
-        <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-2">
+        {/* 5. BARRA DE HERRAMIENTAS DE EDICIÓN DE TEXTO (WYSIWYG) */}
+        <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <PenSquare className="w-3.5 h-3.5 text-purple-400" /> Estilo de Texto
+          </h2>
+          <div className="grid grid-cols-4 gap-1.5 bg-slate-900 p-1.5 rounded-lg border border-slate-700/80">
+            <button type="button" onClick={() => onFormatText('bold')} title="Negrita" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <Bold className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('italic')} title="Cursiva" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <Italic className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('underline')} title="Subrayado" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <Underline className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('strikeThrough')} title="Tachado" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <Strikethrough className="w-4 h-4" />
+            </button>
+
+            <button type="button" onClick={() => onFormatText('justifyLeft')} title="Alinear a Izquierda" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <AlignLeft className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('justifyCenter')} title="Centrar" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <AlignCenter className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('justifyRight')} title="Alinear a Derecha" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <AlignRight className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('justifyFull')} title="Justificar" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <AlignJustify className="w-4 h-4" />
+            </button>
+
+            <button type="button" onClick={() => onFormatText('insertUnorderedList')} title="Lista Viñetas" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <List className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('insertOrderedList')} title="Lista Numerada" className="p-2 hover:bg-slate-800 rounded text-slate-300 hover:text-white flex items-center justify-center">
+              <ListOrdered className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => onFormatText('formatBlock', '<h1>')} title="Título Grande (H1)" className="p-2 hover:bg-slate-800 rounded text-xs font-bold text-slate-300 hover:text-white">
+              H1
+            </button>
+            <button type="button" onClick={() => onFormatText('formatBlock', '<h2>')} title="Título Mediano (H2)" className="p-2 hover:bg-slate-800 rounded text-xs font-bold text-slate-300 hover:text-white">
+              H2
+            </button>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-slate-400">Color de texto:</span>
+            <input
+              type="color"
+              onMouseDown={onSaveSelection}
+              onChange={(e) => onFormatText('foreColor', e.target.value)}
+              className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-700"
+            />
+          </div>
           <button
             type="button"
             onClick={onInsertPageNumber}
             className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition"
           >
-            <Hash className="w-3.5 h-3.5 text-amber-400" /> Insertar número de página en el texto
+            <Hash className="w-3.5 h-3.5 text-amber-400" /> Insertar número de página
           </button>
-          <p className="text-[10px] text-slate-500">
-            Negrita, cursiva, alineación, listas y color están en la barra de arriba: selecciona un texto y aparecen.
-            Para numerar todas las hojas usa «Foliado».
-          </p>
+          <button
+            type="button"
+            onClick={onOpenCaptionGapAll}
+            className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Rows className="w-3.5 h-3.5 text-blue-400" /> Separación imagen–pie de foto (todas)
+          </button>
         </div>
 
         </>)}

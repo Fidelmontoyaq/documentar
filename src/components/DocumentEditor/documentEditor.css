@@ -132,8 +132,6 @@ body.exporting .frame-slot { display: none; }
 #editorContainer { overscroll-behavior: contain; touch-action: pan-x pan-y; }
 
 @media (pointer: coarse) {
-  /* Los botones flotantes de cada hoja quedaban bajo el dedo y movían/giraban hojas al deslizar: en táctil van en el menú. */
-  .a4-page [data-page-toolbar] { display: none !important; }
   .floating-box-ctrl { width: 22px; height: 22px; }
   .floating-box-ctrl.ctrl-nw { top: -12px; left: -12px; }
   .floating-box-ctrl.ctrl-ne { top: -12px; right: -12px; }
@@ -199,45 +197,3 @@ body.exporting .show-grid .a4-page::after { display: none; }
 .pdf-edit-overlay { -webkit-user-select: text; user-select: text; touch-action: manipulation; }
 .pdf-edit-overlay::selection { background: rgba(59, 130, 246, 0.35); }
 body.exporting .pdf-hover, body.exporting .pdf-edit-bg { display: none !important; }
-
-/* ===================== TEMA CLARO (por defecto) / OSCURO ===================== */
-/* La clase la pone el editor en <body>: así también afecta a los menús que se abren fuera de él. */
-body.de-light {
-  --slate-50: 15 23 42; --slate-100: 30 41 59; --slate-200: 51 65 85; --slate-300: 71 85 105;
-  --slate-400: 100 116 139; --slate-500: 100 116 139; --slate-600: 190 201 215; --slate-700: 214 222 233;
-  --slate-800: 238 242 247; --slate-900: 255 255 255; --slate-950: 255 255 255;
-  color-scheme: light;
-}
-body.de-dark { color-scheme: dark; }
-
-body.de-light .doc-editor ::-webkit-scrollbar-track { background: #eef2f7; }
-body.de-light .doc-editor ::-webkit-scrollbar-thumb { background: #c3cddb; }
-body.de-light .doc-editor ::-webkit-scrollbar-thumb:hover { background: #a9b6c9; }
-body.de-light #editorContainer { background: #e9edf3; }
-body.de-light .element-toolbar .et-btn { color: #334155; }
-body.de-light .element-toolbar .et-btn:hover { background: #e8eef7; color: #0f172a; }
-body.de-light .element-toolbar .et-sep { background: #d6dee9; }
-body.de-light .zoom-range { background: #cbd5e1; }
-body.de-light .a4-page { box-shadow: 0 1px 3px rgba(15, 23, 42, .12), 0 8px 24px rgba(15, 23, 42, .10); }
-
-/* El texto blanco de los títulos pasa a oscuro; el de botones de color se queda blanco. */
-body.de-light .doc-editor .text-white,
-body.de-light .de-portal .text-white { color: #0f172a; }
-body.de-light .text-white[class*="bg-blue"], body.de-light .text-white[class*="bg-emerald"], body.de-light .text-white[class*="bg-rose"],
-body.de-light .text-white[class*="bg-red"], body.de-light .text-white[class*="bg-amber"], body.de-light .text-white[class*="bg-violet"],
-body.de-light .text-white[class*="bg-purple"], body.de-light .text-white[class*="bg-pink"], body.de-light .text-white[class*="bg-sky"],
-body.de-light .text-white[class*="bg-green"], body.de-light .text-white[class*="bg-orange"] { color: #fff; }
-body.de-light .hover\:text-white:hover { color: #0f172a; }
-body.de-light [class*="bg-blue-"].hover\:text-white:hover, body.de-light [class*="bg-emerald-"].hover\:text-white:hover { color: #fff; }
-body.de-light .text-blue-400, body.de-light .text-blue-300 { color: #2563eb; }
-body.de-light .text-emerald-400, body.de-light .text-emerald-300 { color: #059669; }
-body.de-light .text-amber-400, body.de-light .text-amber-300 { color: #b45309; }
-body.de-light .text-rose-400, body.de-light .text-rose-300 { color: #e11d48; }
-body.de-light .text-sky-400 { color: #0284c7; }
-body.de-light .text-pink-400 { color: #db2777; }
-body.de-light .text-purple-400 { color: #7c3aed; }
-body.de-light .hover\:text-blue-400:hover { color: #1d4ed8; }
-body.de-light .bg-slate-950\/90, body.de-light .bg-slate-950\/70 { background-color: rgba(15, 23, 42, .55); }
-
-#editorContainer { -webkit-overflow-scrolling: touch; scroll-snap-type: none; }
-@media (max-width: 767px) { #pagesWrapper { scroll-behavior: auto; } }
