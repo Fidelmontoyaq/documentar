@@ -13,7 +13,7 @@ export interface SizePreset {
 }
 
 export interface SizeGroup {
-  id: 'doc' | 'design';
+  id: 'doc' | 'slides' | 'design';
   label: string;
   items: SizePreset[];
 }
@@ -31,6 +31,18 @@ export const SIZE_GROUPS: SizeGroup[] = [
       { id: 'legal', label: 'Oficio', w: inch(8.5), h: inch(13), hint: '8,5×13 in' },
       { id: 'a3', label: 'A3', w: mm(297), h: mm(420), hint: '297×420 mm' },
       { id: 'a5', label: 'A5', w: mm(148), h: mm(210), hint: '148×210 mm' },
+    ],
+  },
+  {
+    id: 'slides',
+    label: 'Diapositivas',
+    items: [
+      { id: 'slide-169', label: 'Diapositiva 16:9', w: 1920, h: 1080, hint: '1920×1080 · Full HD' },
+      { id: 'slide-169-hd', label: 'Diapositiva 16:9 HD', w: 1280, h: 720, hint: '1280×720' },
+      { id: 'slide-43', label: 'Diapositiva 4:3', w: 1024, h: 768, hint: '1024×768' },
+      { id: 'slide-43-ppt', label: 'PowerPoint 4:3', w: 960, h: 720, hint: '10×7,5 in' },
+      { id: 'slide-1610', label: 'Diapositiva 16:10', w: 1280, h: 800, hint: '1280×800' },
+      { id: 'slide-4k', label: 'Diapositiva 4K', w: 3840, h: 2160, hint: '3840×2160' },
     ],
   },
   {

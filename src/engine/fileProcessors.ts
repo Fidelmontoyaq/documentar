@@ -3,6 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 // La URL del worker se resuelve como asset propio gracias a Vite (?url).
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import * as mammoth from 'mammoth';
+import { extractPageText, newPdfId, registerPdfDoc, registerPdfPage } from './pdfText';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -21,6 +22,8 @@ export async function processPDFFile(
   const arrayBuffer = await file.arrayBuffer();
   const typedArray = new Uint8Array(arrayBuffer);
   const pdf = await pdfjsLib.getDocument(typedArray).promise;
+  const docId = newPdfId('doc');
+  registerPdfDoc(docId, pdf);
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -34,11 +37,20 @@ export async function processPDFFile(
       await page.render({ canvasContext: context, viewport }).promise;
     }
     const imgData = canvas.toDataURL('image/png');
+    // Texto de la página (para poder editarlo en el sitio). Si falla, la página se importa igual.
+    let pdfId = '';
+    try {
+      const data = await extractPageText(page, viewport, docId, pageNum);
+      pdfId = newPdfId('pg');
+      registerPdfPage(pdfId, data);
+    } catch (error) {
+      console.warn('No se pudo leer el texto de la página', pageNum, error);
+    }
     // La hoja del PDF se muestra tal cual, sin ningún control de edición ni
     // recorte: ocupa el 100% del ancho y alto de la hoja (object-fit: contain
     // evita que se distorsione o se recorte si la proporción del PDF
     // original no fuera exactamente A4).
-    const imgHTML = `<img src="${imgData}" class="block w-full h-full" style="object-fit:contain;" draggable="false" />`;
+    const imgHTML = `<img src="${imgData}" class="block w-full h-full" style="object-fit:contain;" draggable="false" ${pdfId ? `data-pdf-id="${pdfId}"` : ''} />`;
     // Si la página del PDF es más ancha que alta, la hoja del documento se
     // crea horizontal para que no queden franjas en blanco a los costados.
     const orientation = viewport.width > viewport.height ? 'landscape' : 'portrait';
