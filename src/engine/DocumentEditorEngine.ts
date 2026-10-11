@@ -24,6 +24,7 @@ import type {
 } from '../types/documentEditor';
 import { fileExtension, loadImageNaturalSize, readFileAsDataURL } from './fileUtils';
 import { processDocxFile, processPDFFile } from './fileProcessors';
+import { PdfEditController } from './pdfEdit';
 import { CAPTION_SPACE, computeLayout } from './imageLayouts';
 import { DEFAULT_FOLIO, folioPosition, folioText, renderFolioBadge, type FolioConfig } from './folio';
 
@@ -71,6 +72,7 @@ export class DocumentEditorEngine {
   private toolbarEl: HTMLElement | null = null;
   private etTarget: HTMLElement | null = null;
   private etTargetKind: ToolbarTargetKind = null;
+  private pdfEdit!: PdfEditController;
 
   private observer: MutationObserver | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -155,6 +157,16 @@ export class DocumentEditorEngine {
     this.scrollContainer.addEventListener('touchend', this.boundTouchEnd, { passive: true });
     this.scrollContainer.addEventListener('touchcancel', this.boundTouchEnd, { passive: true });
 
+    this.pdfEdit = new PdfEditController({
+      pagesWrapper: this.pagesWrapper,
+      showToolbar: (el) => this.showElementToolbarFor(el, 'text'),
+      hideToolbar: () => this.hideElementToolbar(),
+      refreshToolbar: () => this.publishToolbarState(),
+      commit: () => this.commitNow(),
+      notify: (m) => this.listeners.onNotice?.(m),
+      onModeChange: (on) => this.listeners.onPdfEditModeChange?.(on),
+    });
+
     this.observer = new MutationObserver(() => {
       this.scheduleImageInfo();
       this.scheduleCommit();
@@ -166,7 +178,7 @@ export class DocumentEditorEngine {
       attributes: true,
       attributeFilter: [
         'style', 'class', 'data-cap-gap', 'data-cap-dx', 'data-cap-w', 'data-ar', 'data-rotation',
-        'data-kind', 'data-hf', 'data-bg', 'data-shape', 'data-fill-on', 'data-fill', 'data-fill-op', 'data-bc', 'data-bw', 'data-sides', 'data-rad', 'data-has-img',
+        'data-pdf-id', 'data-kind', 'data-hf', 'data-bg', 'data-shape', 'data-fill-on', 'data-fill', 'data-fill-op', 'data-bc', 'data-bw', 'data-sides', 'data-rad', 'data-has-img',
       ],
     });
 
@@ -204,6 +216,7 @@ export class DocumentEditorEngine {
     this.scrollContainer.removeEventListener('touchmove', this.boundTouchMove);
     this.scrollContainer.removeEventListener('touchend', this.boundTouchEnd);
     this.scrollContainer.removeEventListener('touchcancel', this.boundTouchEnd);
+    this.pdfEdit?.destroy();
     cancelAnimationFrame(this.folioRaf);
     clearTimeout(this.commitTimer);
     this.sortableInstance?.destroy();
@@ -678,6 +691,33 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  /** Id de la hoja activa (la que se ve en pantalla). */
+  getActivePageId(): string | null {
+    return this.getActivePage()?.id ?? null;
+  }
+
+  /** Acciones sobre la hoja activa (para el menú del celular, donde los botones flotantes de la hoja se ocultan). */
+  pageAction(action: 'move-up' | 'move-down' | 'orientation' | 'duplicate' | 'delete') {
+    const id = this.getActivePageId();
+    if (!id) return;
+    switch (action) {
+      case 'move-up': this.movePageUp(id); break;
+      case 'move-down': this.movePageDown(id); break;
+      case 'orientation': this.togglePageOrientation(id); break;
+      case 'duplicate': this.duplicatePage(id); break;
+      case 'delete': this.deletePage(id); break;
+    }
+  }
+
+  /** Salta a la hoja anterior/siguiente. */
+  goToPage(delta: 1 | -1) {
+    const ids = this.getPageIds();
+    const cur = this.getActivePageId();
+    const i = cur ? ids.indexOf(cur) : 0;
+    const next = ids[Math.max(0, Math.min(ids.length - 1, i + delta))];
+    if (next) this.scrollToPage(next);
+  }
+
   scrollToPage(id: string) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -989,6 +1029,28 @@ export class DocumentEditorEngine {
     const area = this.getPageArea(page);
     const box = await this.addImageToPage(page, src, Math.min(area.w * 0.6, 480), Math.min(area.h * 0.5, 480), this.nextFloatingOffset());
     this.selectFloatingBox(box);
+  }
+
+  /**
+   * Archivos soltados sobre el lienzo. PDF/Word se importan como hojas; si solo
+   * son imágenes y se soltaron sobre una hoja, van a esa hoja (una sola imagen
+   * suelta, varias acomodadas); fuera de las hojas siguen el modo de importación.
+   */
+  async dropFiles(files: File[], clientX: number, clientY: number, mode: ImagesPerPageMode): Promise<void> {
+    if (files.length === 0) return;
+    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const page = el?.closest<HTMLElement>('.a4-page') ?? null;
+    const hasDocs = files.some((f) => ['pdf', 'docx'].includes(fileExtension(f.name)));
+    if (page && !hasDocs) {
+      this.setActivePage(page);
+      if (files.length === 1) {
+        await this.insertFloatingImage(await readFileAsDataURL(files[0]));
+        return;
+      }
+      await this.handleFileSelect(files, 'current');
+      return;
+    }
+    await this.handleFileSelect(files, mode);
   }
 
   insertFloatingTextBox(text?: string): void {
@@ -1951,7 +2013,21 @@ export class DocumentEditorEngine {
     return this.etTarget;
   }
 
+  /** Modo "editar texto del PDF". */
+  async setPdfEditMode(on: boolean) {
+    await this.pdfEdit.setMode(on);
+  }
+
+  isPdfEditMode() {
+    return this.pdfEdit.isOn();
+  }
+
+  private isPdfTarget() {
+    return this.etTargetKind === 'text' && this.pdfEdit.isActiveTarget(this.etTarget);
+  }
+
   etFormat(cmd: string, val: string | null = null) {
+    if (this.isPdfTarget()) return this.pdfEdit.format(cmd, val);
     const editable = this.getEtEditable();
     if (!editable) return;
     editable.focus();
@@ -1960,6 +2036,11 @@ export class DocumentEditorEngine {
   }
 
   etApplyFont(value: string) {
+    if (this.isPdfTarget()) {
+      this.pdfEdit.setFont(value);
+      this.listeners.onFontUsed?.(value);
+      return;
+    }
     const editable = this.getEtEditable();
     if (!editable) return;
     editable.style.fontFamily = value;
@@ -1967,6 +2048,7 @@ export class DocumentEditorEngine {
   }
 
   etApplyFontSize(value: string) {
+    if (this.isPdfTarget()) return this.pdfEdit.setFontSizeCss(parseFloat(value));
     const editable = this.getEtEditable();
     if (editable) editable.style.fontSize = `${value}px`;
   }
@@ -2449,6 +2531,33 @@ export class DocumentEditorEngine {
    * con transparencia, como un sticker. Es real (se hornea en la imagen), así
    * sale en el PNG. `null` lo quita y devuelve la imagen original.
    */
+  /** Imagen seleccionada lista para editarle el fondo (null si no se puede, con aviso). */
+  getEditableImage(): { id: string; src: string } | null {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'image') return null;
+    const img = box.querySelector<HTMLImageElement>('img');
+    if (!img) return null;
+    if (box.dataset.stickerPad) {
+      this.listeners.onError?.('Quita primero el borde de sticker (botón Sticker → Quitar) y luego quita el fondo.');
+      return null;
+    }
+    if (!box.dataset.fbId) box.dataset.fbId = `fb-${++this.floatingBoxCounter}-${Date.now()}`;
+    return { id: box.dataset.fbId, src: img.src };
+  }
+
+  /** Reemplaza la imagen de un elemento por su versión sin fondo (PNG). */
+  applyEditedImage(id: string, dataUrl: string, w: number, h: number) {
+    const box = this.pagesWrapper.querySelector<HTMLElement>(`.floating-box[data-fb-id="${id}"]`);
+    const img = box?.querySelector<HTMLImageElement>('img');
+    if (!box || !img) return;
+    img.src = dataUrl;
+    this.stickerOrig.delete(id);
+    // El recorte (si lo hay) está en píxeles de pantalla, así que no cambia aunque la imagen se haya reducido.
+    box.dataset.natW = String(w);
+    box.dataset.natH = String(h);
+    this.commitNow();
+  }
+
   async setStickerBorder(opts: { width: number; color: string; shadow: boolean } | null) {
     const box = this.getEtBox();
     if (!box || box.dataset.type !== 'image') return;
@@ -2553,7 +2662,7 @@ export class DocumentEditorEngine {
 
   private serializeState(): string {
     const clone = this.pagesWrapper.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.margin-guide, .page-folio, .snap-line').forEach((e) => e.remove());
+    clone.querySelectorAll('.margin-guide, .page-folio, .snap-line, .pdf-edit-overlay, .pdf-edit-bg, .pdf-hover').forEach((e) => e.remove());
     clone.querySelectorAll('.box-selected').forEach((e) => e.classList.remove('box-selected'));
     clone.querySelectorAll('.page-active').forEach((e) => e.classList.remove('page-active'));
     clone.querySelectorAll('[data-initialized]').forEach((e) => e.removeAttribute('data-initialized'));
@@ -2602,6 +2711,7 @@ export class DocumentEditorEngine {
       this.wirePageToolbar(p);
       p.querySelectorAll<HTMLElement>('.floating-box').forEach((fb) => this.initFloatingBox(fb));
     });
+    this.pdfEdit?.reset();
     this.activePage = null;
     this.etTarget = null;
     this.etTargetKind = null;
@@ -2907,6 +3017,7 @@ export class DocumentEditorEngine {
    * imágenes salen juntas en un ZIP.
    */
   async exportDocument(opts: ExportOptions): Promise<void> {
+    await this.pdfEdit.commit();
     const allPages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
     const pages = opts.scope === 'page' ? allPages.filter((p) => p === this.getActivePage()) : allPages;
     if (!pages.length) return;
