@@ -6,6 +6,8 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Escala "slate" controlada por variables CSS: el tema claro/oscuro del editor solo cambia las variables.
+        slate: Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((n) => [n, `rgb(var(--slate-${n}) / <alpha-value>)`])),
         // Navy — ahora con base azul (antes tenia un tinte marron/sepia)
         navy: '#0B1B33',
         'navy-2': '#132A52',
