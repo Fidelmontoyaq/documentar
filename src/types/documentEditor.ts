@@ -104,6 +104,8 @@ export interface DocumentEditorEngineListeners {
   onHistoryChange?: (h: { canUndo: boolean; canRedo: boolean }) => void;
   onZoomChange?: (percent: number) => void;
   onPageInfoChange?: (info: PageInfo | null) => void;
+  /** La hoja que se está viendo (activa) cambió. */
+  onActivePageChange?: (id: string | null) => void;
 }
 
 /** Datos de la hoja/lienzo activo, publicados por el motor para el panel de lienzo. */
@@ -127,3 +129,11 @@ export interface ExportOptions {
   /** Multiplicador de resolución: 1 = tamaño exacto del lienzo en píxeles. */
   scale: number;
 }
+
+/** Órdenes del motor que se pueden grabar y repetir (presets / macros). */
+export type EngineCmd =
+  | { t: 'size'; w: number; h: number; kind: 'doc' | 'design'; scope: 'page' | 'all' }
+  | { t: 'margin'; value: string }
+  | { t: 'marginCm'; cm: number }
+  | { t: 'font'; value: string }
+  | { t: 'folio'; cfg: Record<string, unknown> };
