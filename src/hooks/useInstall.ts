@@ -1,51 +1,75 @@
 import { useCallback, useEffect, useState } from 'react';
 
-interface BIPEvent extends Event {
+export interface BIPEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+declare global {
+  interface Window {
+    __bip?: BIPEvent | null;
+  }
+}
+
+/** Se llama desde main.tsx, ANTES de pintar React: el navegador lanza el aviso de instalación una sola vez y muy pronto. */
+export function captureInstallEvent() {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window.__bip = e as BIPEvent;
+    window.dispatchEvent(new Event('bip-ready'));
+  });
+  window.addEventListener('appinstalled', () => {
+    window.__bip = null;
+    window.dispatchEvent(new Event('bip-installed'));
+  });
+}
+
 const isStandalone = () =>
-  (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches) ||
+  (typeof matchMedia === 'function' && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) ||
   (navigator as unknown as { standalone?: boolean }).standalone === true;
 
 export const isIOS = () =>
   /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-/** Instalación como app (PWA): Android/Chrome/Edge usan el aviso del navegador; iOS requiere "Añadir a pantalla de inicio". */
+/** Navegadores dentro de otras apps (WhatsApp, Facebook, Instagram…): no permiten instalar. */
+export const isInAppBrowser = () => /FBAN|FBAV|Instagram|WhatsApp|Line\/|Messenger|TikTok|; wv\)/i.test(navigator.userAgent);
+
+export type InstallHelpKind = 'ios' | 'android' | 'inapp' | 'desktop';
+const helpKind = (): InstallHelpKind => (isInAppBrowser() ? 'inapp' : isIOS() ? 'ios' : /android/i.test(navigator.userAgent) ? 'android' : 'desktop');
+
+/**
+ * Instalación como app (PWA). Si el navegador ya ofreció el aviso nativo, se usa directamente;
+ * si no (iPhone, aviso rechazado antes, navegador dentro de otra app…), se muestran los pasos manuales.
+ */
 export function useInstall() {
-  const [evt, setEvt] = useState<BIPEvent | null>(null);
+  const [evt, setEvt] = useState<BIPEvent | null>(() => window.__bip ?? null);
   const [installed, setInstalled] = useState(isStandalone());
-  const [iosHelp, setIosHelp] = useState(false);
+  const [help, setHelp] = useState<InstallHelpKind | null>(null);
 
   useEffect(() => {
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setEvt(e as BIPEvent);
-    };
-    const onInstalled = () => {
-      setInstalled(true);
-      setEvt(null);
-    };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
+    const ready = () => setEvt(window.__bip ?? null);
+    const done = () => { setInstalled(true); setEvt(null); };
+    window.addEventListener('bip-ready', ready);
+    window.addEventListener('bip-installed', done);
+    ready();
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
+      window.removeEventListener('bip-ready', ready);
+      window.removeEventListener('bip-installed', done);
     };
   }, []);
 
-  const canInstall = !installed && (!!evt || isIOS());
-
   const install = useCallback(async () => {
     if (evt) {
-      await evt.prompt();
-      await evt.userChoice.catch(() => undefined);
+      try {
+        await evt.prompt();
+        await evt.userChoice.catch(() => undefined);
+      } catch { /* ya usado */ }
+      window.__bip = null;
       setEvt(null);
-    } else if (isIOS()) {
-      setIosHelp(true);
+    } else {
+      setHelp(helpKind());
     }
   }, [evt]);
 
-  return { canInstall, install, installed, iosHelp, closeIosHelp: () => setIosHelp(false) };
+  return { canInstall: !installed, nativeReady: !!evt, install, installed, help, closeHelp: () => setHelp(null) };
 }

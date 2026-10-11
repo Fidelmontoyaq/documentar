@@ -31,15 +31,18 @@ export function useDocumentEditorEngine() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pdfEditOn, setPdfEditOn] = useState(false);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [contentVersion, setContentVersion] = useState(0);
   const [recentFonts, setRecentFonts] = useState<string[]>(() => loadRecentFonts());
 
   useEffect(() => {
     if (!pagesWrapperRef.current || !scrollContainerRef.current) return;
 
     const instance = new DocumentEditorEngine(pagesWrapperRef.current, scrollContainerRef.current, {
-      onPageCountChange: setPageCount,
+      onPageCountChange: (n) => { setPageCount(n); setContentVersion((v) => v + 1); },
+      onActivePageChange: setActivePageId,
       onActiveImagesChange: setImageCount,
-      onHistoryChange: setHistory,
+      onHistoryChange: (h) => { setHistory(h); setContentVersion((v) => v + 1); },
       onZoomChange: setZoom,
       onPageInfoChange: setPageInfo,
       onToolbarStateChange: setToolbarState,
@@ -78,5 +81,7 @@ export function useDocumentEditorEngine() {
     setNotice,
     pdfEditOn,
     recentFonts,
+    activePageId,
+    contentVersion,
   };
 }
