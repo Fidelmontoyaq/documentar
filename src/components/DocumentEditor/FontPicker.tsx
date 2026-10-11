@@ -299,10 +299,10 @@ export function FontPicker({ value, recentFonts, onChange, placeholder = 'Fuente
       </button>
       {open &&
         createPortal(
-          <>
+          <div className="de-portal">
             <div data-keep-selection className="fixed inset-0 z-[94] bg-black/40 md:bg-transparent" onClick={() => setOpen(false)} />
             {panel}
-          </>,
+          </div>,
           document.body
         )}
     </>
