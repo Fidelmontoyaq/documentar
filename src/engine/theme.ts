@@ -1,19 +1,19 @@
 // Tema de la interfaz: claro (por defecto, el de las oficinas), oscuro (el azul marino de antes) y automático.
 import { useCallback, useEffect, useState } from 'react';
 
-export type ThemeMode = 'light' | 'dark' | 'auto';
+export type ThemeMode = 'light' | 'dark' | 'navy' | 'auto';
 const KEY = 'docucraft.theme';
 
 export function loadTheme(): ThemeMode {
   try {
     const v = localStorage.getItem(KEY);
-    if (v === 'light' || v === 'dark' || v === 'auto') return v;
+    if (v === 'light' || v === 'dark' || v === 'navy' || v === 'auto') return v;
   } catch { /* sin almacenamiento */ }
   return 'light';
 }
 
 const prefersDark = () => typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
-export const resolveTheme = (m: ThemeMode): 'light' | 'dark' => (m === 'auto' ? (prefersDark() ? 'dark' : 'light') : m);
+export const resolveTheme = (m: ThemeMode): 'light' | 'dark' | 'navy' => (m === 'auto' ? (prefersDark() ? 'dark' : 'light') : m);
 
 export function applyTheme(m: ThemeMode) {
   const r = resolveTheme(m);
@@ -21,7 +21,7 @@ export function applyTheme(m: ThemeMode) {
   document.body.classList.toggle('de-dark', r === 'dark');
   document.documentElement.style.colorScheme = r;
   const meta = document.querySelector('meta[name="theme-color"]');
-  meta?.setAttribute('content', r === 'light' ? '#ffffff' : '#0f172a');
+  meta?.setAttribute('content', r === 'light' ? '#ffffff' : r === 'dark' ? '#1c1f25' : '#0f172a');
 }
 
 export function useTheme() {

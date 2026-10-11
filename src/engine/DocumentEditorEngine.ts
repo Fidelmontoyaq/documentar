@@ -11,6 +11,7 @@ import type {
   ArrangeLayoutId,
   CurrentMargin,
   DocumentEditorEngineListeners,
+  EngineCmd,
   FloatingBoxType,
   ExportOptions,
   ImagesPerPageMode,
@@ -36,7 +37,7 @@ const MARGIN_CLASSES: MarginPresetClass[] = [
 ];
 
 const PAGE_BASE_CLASSES =
-  'a4-page bg-white text-slate-800 shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border print:shadow-none print:w-full print:h-full break-after-page group';
+  'a4-page bg-white text-black shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border print:shadow-none print:w-full print:h-full break-after-page group';
 
 const ORIENTATION_SIZE_CLASSES: Record<PageOrientation, string> = {
   portrait: 'w-[210mm] min-h-[297mm]',
@@ -83,6 +84,8 @@ export class DocumentEditorEngine {
   private imgStore: string[] = [];
   private imgIds = new Map<string, number>();
   private restoring = false;
+  private replaying = false;
+  private cmdListener: ((c: EngineCmd) => void) | null = null;
   private busy = false;
   private commitTimer = 0;
 
@@ -236,6 +239,7 @@ export class DocumentEditorEngine {
       this.pagesWrapper.querySelectorAll('.a4-page.page-active').forEach((p) => p.classList.remove('page-active'));
       page.classList.add('page-active');
       this.activePage = page;
+      this.listeners.onActivePageChange?.(page.id);
     }
     this.scheduleImageInfo();
   }
@@ -436,7 +440,70 @@ export class DocumentEditorEngine {
 
   // ===================== TIPOGRAFÍA Y MÁRGENES GLOBALES =====================
 
+  // ===================== ÓRDENES GRABABLES (presets) =====================
+
+  setCommandListener(fn: ((c: EngineCmd) => void) | null) {
+    this.cmdListener = fn;
+  }
+
+  private emitCmd(c: EngineCmd) {
+    if (!this.replaying) this.cmdListener?.(c);
+  }
+
+  /** Repite una orden grabada o de un preset. */
+  applyCommand(c: EngineCmd) {
+    this.replaying = true;
+    try {
+      switch (c.t) {
+        case 'size': this.setCanvasSize(c.w, c.h, { scope: c.scope, kind: c.kind }); break;
+        case 'margin': this.changeGlobalMargin(c.value as MarginPresetClass); break;
+        case 'marginCm': this.applyCustomMargin(c.cm); break;
+        case 'font': this.changeGlobalFont(c.value); break;
+        case 'folio': this.setFolioConfig({ ...this.folioCfg, ...(c.cfg as Partial<FolioConfig>) }); break;
+      }
+    } finally {
+      this.replaying = false;
+    }
+    this.commitNow();
+  }
+
+  /** Cuántas hojas en blanco hay seguidas al final del documento (sin contar PDF). */
+  trailingBlankPages(): number {
+    const pages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    let n = 0;
+    for (let i = pages.length - 1; i > 0; i--) {
+      if (pages[i].dataset.pdfPage !== 'true' && this.isPagePristine(pages[i])) n++;
+      else break;
+    }
+    return n;
+  }
+
+  removeTrailingBlankPages() {
+    const pages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    const n = this.trailingBlankPages();
+    for (let k = 0; k < n; k++) pages[pages.length - 1 - k].remove();
+    this.updatePageNumbers();
+    this.getActivePage();
+    this.commitNow();
+  }
+
+  /** Marca el punto actual del historial (para poder volver con «Deshacer preset»). */
+  getHistoryMark(): number {
+    if (this.commitTimer) this.commitNow();
+    return this.historyIndex;
+  }
+
+  undoToMark(mark: number) {
+    if (this.commitTimer) this.commitNow();
+    while (this.historyIndex > mark) {
+      this.historyIndex--;
+      this.restoreState(this.history[this.historyIndex]);
+    }
+    this.emitHistory();
+  }
+
   changeGlobalFont(fontFamily: string) {
+    this.emitCmd({ t: 'font', value: fontFamily });
     this.currentFont = fontFamily;
     this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((page) => {
       page.style.fontFamily = fontFamily;
@@ -450,6 +517,7 @@ export class DocumentEditorEngine {
   }
 
   changeGlobalMargin(marginClass: MarginPresetClass) {
+    this.emitCmd({ t: 'margin', value: marginClass });
     this.currentMargin = { type: 'class', value: marginClass };
     this.editableMarginPages().forEach((page) => {
       page.classList.remove(...MARGIN_CLASSES);
@@ -460,6 +528,7 @@ export class DocumentEditorEngine {
 
   applyCustomMargin(cm: number) {
     const safeCm = Number.isNaN(cm) || cm < 0 ? 0 : cm;
+    this.emitCmd({ t: 'marginCm', cm: safeCm });
     this.currentMargin = { type: 'custom', value: safeCm };
     this.editableMarginPages().forEach((page) => {
       page.classList.remove(...MARGIN_CLASSES);
@@ -477,10 +546,10 @@ export class DocumentEditorEngine {
 
     const headerHTML = isPdfPage
       ? ''
-      : `<div class="page-header has-placeholder min-h-[2.2rem] mb-4 outline-none focus:bg-slate-100/60 text-2xl font-bold text-slate-800 text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:font-normal" data-placeholder="Título sugerido" contenteditable="true" spellcheck="false"></div>`;
+      : `<div class="page-header has-placeholder min-h-[2.2rem] mb-4 outline-none focus:bg-transparent text-2xl font-bold text-black text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:font-normal" data-placeholder="Título sugerido" contenteditable="true" spellcheck="false"></div>`;
     const footerHTML = isPdfPage
       ? ''
-      : `<div class="page-footer has-placeholder min-h-[1.4rem] mt-4 outline-none focus:bg-slate-100/60 text-slate-800 text-xs text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400" data-placeholder="Pie de página (opcional)" contenteditable="true" spellcheck="false"></div>`;
+      : `<div class="page-footer has-placeholder min-h-[1.4rem] mt-4 outline-none focus:bg-transparent text-black text-xs text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400" data-placeholder="Pie de página (opcional)" contenteditable="true" spellcheck="false"></div>`;
 
     return `
       <div class="${PAGE_BASE_CLASSES} ${sizeClass} ${marginClass}" id="${pageId}" data-page-id="${pageId}" data-orientation="${orientation}" ${isPdfPage ? 'data-pdf-page="true"' : ''} style="font-family: ${this.currentFont}; ${marginInlineStyle}">
@@ -492,7 +561,7 @@ export class DocumentEditorEngine {
           <button type="button" data-action="delete" title="Eliminar Página" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-rose-400 transition">&#10005;</button>
         </div>
         ${headerHTML}
-        <div class="page-content ${contentHTML ? '' : 'has-placeholder'} relative flex-1 outline-none break-words focus:bg-slate-100/40 ${isPdfPage ? 'p-0 m-0' : 'text-slate-600 leading-relaxed'}" data-placeholder="Escribe tu contenido aquí..." contenteditable="${isPdfPage ? 'false' : 'true'}" spellcheck="false">${contentHTML}</div>
+        <div class="page-content ${contentHTML ? '' : 'has-placeholder'} relative flex-1 outline-none break-words focus:bg-transparent ${isPdfPage ? 'p-0 m-0' : 'text-black leading-relaxed'}" data-placeholder="Escribe tu contenido aquí..." contenteditable="${isPdfPage ? 'false' : 'true'}" spellcheck="false">${contentHTML}</div>
         ${footerHTML}
       </div>
     `;
@@ -2241,6 +2310,7 @@ export class DocumentEditorEngine {
   setCanvasSize(w: number, h: number, opts: { scope: 'page' | 'all'; kind: 'doc' | 'design' }) {
     const nw = Math.max(50, Math.min(8000, Math.round(w)));
     const nh = Math.max(50, Math.min(8000, Math.round(h)));
+    this.emitCmd({ t: 'size', w: nw, h: nh, kind: opts.kind, scope: opts.scope });
     this.busy = true;
     this.pageScope(opts.scope).forEach((page) => {
       const ow = page.offsetWidth;
@@ -2941,6 +3011,7 @@ export class DocumentEditorEngine {
   }
 
   setFolioConfig(cfg: FolioConfig) {
+    this.emitCmd({ t: 'folio', cfg: { ...cfg } });
     this.folioCfg = cfg;
     this.scheduleFolios();
   }

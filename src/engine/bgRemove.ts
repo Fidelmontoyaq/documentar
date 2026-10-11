@@ -276,20 +276,23 @@ export function visibleBounds(m: MaskImage, threshold = 8): { x: number; y: numb
 const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/+esm';
 // Modelos de recorte; se prueban en orden hasta que uno cargue.
 const AI_MODELS = ['onnx-community/ISNet-ONNX', 'Xenova/modnet'];
+/** «portrait»: primero el modelo hecho para personas (mejor con el cabello); «general»: objetos y cosas. */
+export type AiKind = 'general' | 'portrait';
+const modelsFor = (k: AiKind) => (k === 'portrait' ? [AI_MODELS[1], AI_MODELS[0]] : AI_MODELS);
 
 type Segmenter = (input: string) => Promise<Array<{ data: Uint8ClampedArray; width: number; height: number; channels: number }>>;
-let segmenterPromise: Promise<Segmenter> | null = null;
+const segmenterPromises: Partial<Record<AiKind, Promise<Segmenter>>> = {};
 
 export type AiProgress = (text: string, pct?: number) => void;
 
-async function loadSegmenter(onProgress: AiProgress): Promise<Segmenter> {
-  if (!segmenterPromise) {
-    segmenterPromise = (async () => {
+async function loadSegmenter(onProgress: AiProgress, kind: AiKind): Promise<Segmenter> {
+  if (!segmenterPromises[kind]) {
+    const pr = (async () => {
       onProgress('Descargando el motor de IA…');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lib: any = await import(/* @vite-ignore */ TRANSFORMERS_URL);
       let lastError: unknown = null;
-      for (const model of AI_MODELS) {
+      for (const model of modelsFor(kind)) {
         try {
           onProgress('Descargando el modelo (solo la primera vez)…');
           const seg = await lib.pipeline('background-removal', model, {
@@ -304,19 +307,20 @@ async function loadSegmenter(onProgress: AiProgress): Promise<Segmenter> {
       }
       throw lastError ?? new Error('No se pudo cargar ningún modelo');
     })();
-    segmenterPromise.catch(() => {
-      segmenterPromise = null; // permite reintentar
+    segmenterPromises[kind] = pr;
+    pr.catch(() => {
+      delete segmenterPromises[kind]; // permite reintentar
     });
   }
-  return segmenterPromise;
+  return segmenterPromises[kind]!;
 }
 
 /**
  * Recorte con IA: calcula la silueta y la deja en la máscara. Se trabaja sobre
  * una copia reducida (máx. 1024 px) y la silueta se amplía a la imagen completa.
  */
-export async function aiRemoveBackground(m: MaskImage, onProgress: AiProgress): Promise<void> {
-  const seg = await loadSegmenter(onProgress);
+export async function aiRemoveBackground(m: MaskImage, onProgress: AiProgress, kind: AiKind = 'general'): Promise<void> {
+  const seg = await loadSegmenter(onProgress, kind);
   onProgress('Detectando el objeto…');
   const MAX = 1024;
   const k = Math.min(1, MAX / Math.max(m.w, m.h));
@@ -353,6 +357,169 @@ export async function aiRemoveBackground(m: MaskImage, onProgress: AiProgress): 
     bc.drawImage(maskSmall, 0, 0, m.w, m.h);
     const bd = bc.getImageData(0, 0, m.w, m.h).data;
     for (let i = 0, n = m.w * m.h; i < n; i++) m.mask[i] = Math.round((bd[i * 4 + 3] * m.origAlpha[i]) / 255);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+
+// ===================== FONDOS DIFÍCILES =====================
+
+/**
+ * Quita un color en TODA la imagen (no solo la zona conectada), con borde suave:
+ * sirve para el cielo que se ve entre las hojas de un árbol, el fondo entre los dedos, etc.
+ */
+export function colorKeyRemove(m: MaskImage, x: number, y: number, tol: number, softness = 0.6): number {
+  x = Math.max(0, Math.min(m.w - 1, Math.round(x)));
+  y = Math.max(0, Math.min(m.h - 1, Math.round(y)));
+  const ref = colorAt(m, y * m.w + x);
+  const t0 = (tol / 100) * MAX_DIST;
+  const t1 = t0 * (1 + Math.max(0.05, softness));
+  let n = 0;
+  for (let i = 0, N = m.w * m.h; i < N; i++) {
+    const o = i * 4;
+    const d = Math.hypot(m.rgba[o] - ref.r, m.rgba[o + 1] - ref.g, m.rgba[o + 2] - ref.b);
+    if (d >= t1) continue;
+    const a = d <= t0 ? 0 : (d - t0) / (t1 - t0);
+    const v = Math.round(a * 255);
+    if (v < m.mask[i]) {
+      m.mask[i] = Math.min(m.mask[i], v);
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Suma acumulada (imagen integral) para promediar rápido en ventanas. */
+function integral(w: number, h: number, f: (i: number) => number): Float64Array {
+  const W = w + 1;
+  const out = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += f(y * w + x);
+      out[(y + 1) * W + x + 1] = out[y * W + x + 1] + row;
+    }
+  }
+  return out;
+}
+const boxSum = (I: Float64Array, w: number, h: number, x: number, y: number, r: number) => {
+  const W = w + 1;
+  const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1), y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+  return I[y1 * W + x1] - I[y0 * W + x1] - I[y1 * W + x0] + I[y0 * W + x0];
+};
+
+/**
+ * Cabello y bordes finos: en una franja alrededor del contorno, la opacidad se recalcula con el color real de
+ * cada píxel entre el color de fondo cercano y el del objeto cercano (matting por «línea de color»).
+ * Recupera mechones y puntas que el recorte duro dejó fuera o con halo.
+ */
+export function refineFineEdges(m: MaskImage, band = 6, passes = 4): number {
+  let total = 0;
+  for (let p = 0; p < passes; p++) {
+    const n = refinePass(m, band);
+    total += n;
+    if (!n) break;
+  }
+  return total;
+}
+
+function refinePass(m: MaskImage, band: number): number {
+  const { w, h } = m;
+  const R = Math.max(3, band + 2);
+  const inM = (i: number) => (m.mask[i] >= 128 ? 1 : 0);
+  const out = (i: number) => 1 - inM(i);
+  const cnt = (f: (i: number) => number) => integral(w, h, f);
+  const Iin = cnt(inM), Iout = cnt(out);
+  const chan = (c: number, f: (i: number) => number) => integral(w, h, (i) => m.rgba[i * 4 + c] * f(i));
+  const Fin = [0, 1, 2].map((c) => chan(c, inM));
+  const Fout = [0, 1, 2].map((c) => chan(c, out));
+  const Imask = integral(w, h, (i) => m.mask[i] / 255);
+  const next = new Uint8ClampedArray(m.mask);
+  let changed = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const win = (2 * band + 1) * (2 * band + 1);
+      const avg = boxSum(Imask, w, h, x, y, band) / Math.min(win, (Math.min(w, x + band + 1) - Math.max(0, x - band)) * (Math.min(h, y + band + 1) - Math.max(0, y - band)));
+      if (avg < 0.03 || avg > 0.97) continue; // lejos del contorno
+      const nIn = boxSum(Iin, w, h, x, y, R), nOut = boxSum(Iout, w, h, x, y, R);
+      if (nIn < 6 || nOut < 6) continue;
+      const o = i * 4;
+      let dd = 0, dp = 0;
+      for (let c = 0; c < 3; c++) {
+        const fg = boxSum(Fin[c], w, h, x, y, R) / nIn;
+        const bg = boxSum(Fout[c], w, h, x, y, R) / nOut;
+        dd += (fg - bg) * (fg - bg);
+        dp += (m.rgba[o + c] - bg) * (fg - bg);
+      }
+      if (dd < 400) continue; // fondo y objeto muy parecidos: no se puede separar por color
+      const a = Math.max(0, Math.min(1, dp / dd));
+      // Suaviza: solo corrige dentro de la franja y respeta el borde duro lejano.
+      const v = Math.round(255 * (a < 0.08 ? 0 : a > 0.92 ? 1 : a));
+      const nv = Math.min(m.origAlpha[i], v);
+      if (nv !== next[i]) { next[i] = nv; changed++; }
+    }
+  }
+  m.mask.set(next);
+  return changed;
+}
+
+// ===================== LOTES (sin abrir el lienzo) =====================
+
+export type BatchBgMode = 'ai-general' | 'ai-portrait' | 'auto';
+
+/** Quita el fondo de un archivo de imagen y devuelve un PNG transparente. Pensado para procesar varias imágenes seguidas. */
+export async function removeBgFromFile(
+  file: Blob,
+  mode: BatchBgMode,
+  opts: { tol?: number; cropToContent?: boolean; maxSide?: number } = {},
+  onProgress: AiProgress = () => undefined
+): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('No se pudo leer la imagen'));
+      i.src = url;
+    });
+    const side = opts.maxSide ?? 2048;
+    const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const mi = createMaskImage(ctx.getImageData(0, 0, w, h));
+    if (mode === 'auto') {
+      autoRemoveBackground(mi, opts.tol ?? 18, false);
+    } else {
+      await aiRemoveBackground(mi, onProgress, mode === 'ai-portrait' ? 'portrait' : 'general');
+      if (mode === 'ai-portrait') refineFineEdges(mi, 6);
+    }
+    const outData = new ImageData(w, h);
+    composeRgba(mi, outData.data);
+    const out = outData;
+    let ow = w, oh = h;
+    const b = opts.cropToContent ? visibleBounds(mi) : null;
+    const target = document.createElement('canvas');
+    if (b && b.w > 0 && b.h > 0) {
+      const full = document.createElement('canvas');
+      full.width = w;
+      full.height = h;
+      full.getContext('2d')!.putImageData(out, 0, 0);
+      ow = b.w; oh = b.h;
+      target.width = ow;
+      target.height = oh;
+      target.getContext('2d')!.drawImage(full, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+    } else {
+      target.width = ow;
+      target.height = oh;
+      target.getContext('2d')!.putImageData(out, 0, 0);
+    }
+    return await new Promise<Blob>((res, rej) => target.toBlob((bl) => (bl ? res(bl) : rej(new Error('No se pudo crear el PNG'))), 'image/png'));
   } finally {
     URL.revokeObjectURL(url);
   }
