@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import {
   UploadCloud, Image as ImageIcon, Type, FilePlus, LayoutGrid, FileDown, SlidersHorizontal, LayoutTemplate,
   Shapes, Frame, Hash, FilePenLine, Ruler, Menu, X, ArrowUp, ArrowDown, RotateCw, CopyPlus, Trash2,
-  Sun, Moon, MonitorSmartphone, HelpCircle, Info, Download, ChevronLeft, ChevronRight,
+  Sun, Moon, MonitorSmartphone, HelpCircle, Info, Download, ChevronLeft, ChevronRight, Zap, Sparkles,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
 import { ShapesMenu } from './ShapesMenu';
@@ -37,6 +37,9 @@ interface IconRailProps {
   onTheme: (m: ThemeMode) => void;
   onOpenTour: () => void;
   onOpenAbout: () => void;
+  onOpenQuick: () => void;
+  onOpenAssistant: () => void;
+  assistantAlert: boolean;
   canInstall: boolean;
   onInstall: () => void;
   drawerOpen: boolean;
@@ -66,6 +69,7 @@ const GROUPS: { id: Tool['group']; label: string }[] = [
 const THEMES: { id: ThemeMode; label: string; icon: ReactNode }[] = [
   { id: 'light', label: 'Claro', icon: <Sun className="w-4 h-4" /> },
   { id: 'dark', label: 'Oscuro', icon: <Moon className="w-4 h-4" /> },
+  { id: 'navy', label: 'Marino', icon: <Moon className="w-4 h-4 text-blue-500" /> },
   { id: 'auto', label: 'Auto', icon: <MonitorSmartphone className="w-4 h-4" /> },
 ];
 
@@ -84,6 +88,7 @@ export function IconRail(p: IconRailProps) {
   const closeDrawer = () => p.setDrawerOpen(false);
 
   const tools: Tool[] = [
+    { id: 'quick', label: 'Rápido', title: 'Tareas rápidas: foliar, quitar fondos, ordenar… sin abrir la hoja', icon: <Zap className="w-5 h-5" />, group: 'archivo', accent: true, onClick: p.onOpenQuick },
     { id: 'import', label: 'Subir', title: 'Importar archivos (PDF, Word, imágenes)', icon: <UploadCloud className="w-5 h-5" />, group: 'archivo', active: p.activePanel === 'import', onClick: () => p.onOpenPanel('import') },
     { id: 'export', label: 'Exportar', title: 'Exportar (PDF, PNG o JPG)', icon: <FileDown className="w-5 h-5" />, group: 'archivo', accent: true, onClick: p.onExportPDF },
     { id: 'image', label: 'Imagen', title: 'Agregar imágenes a la hoja actual', icon: <ImageIcon className="w-5 h-5" />, group: 'insertar', onClick: () => imageInputRef.current?.click() },
@@ -130,7 +135,7 @@ export function IconRail(p: IconRailProps) {
     );
   };
 
-  const nextTheme = () => p.onTheme(p.theme === 'light' ? 'dark' : p.theme === 'dark' ? 'auto' : 'light');
+  const nextTheme = () => p.onTheme(p.theme === 'light' ? 'dark' : p.theme === 'dark' ? 'navy' : p.theme === 'navy' ? 'auto' : 'light');
   const themeNow = THEMES.find((t) => t.id === p.theme)!;
 
   return (
@@ -166,6 +171,11 @@ export function IconRail(p: IconRailProps) {
           <button type="button" data-tour="theme" onClick={nextTheme} title={`Tema: ${themeNow.label} (clic para cambiar)`} className="flex flex-col items-center gap-1 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70">
             {themeNow.icon}
             <span className="text-[10px] leading-none">{themeNow.label}</span>
+          </button>
+          <button type="button" data-tour="assistant" onClick={p.onOpenAssistant} title="Asistente local: sugerencias y presets" className="relative flex flex-col items-center gap-1 py-2 rounded-lg text-blue-600 hover:bg-blue-600/10">
+            <Sparkles className="w-5 h-5" />
+            <span className="text-[10px] leading-none">Asistente</span>
+            {p.assistantAlert && <span className="absolute top-1.5 right-4 w-2 h-2 rounded-full bg-rose-500" />}
           </button>
           <button type="button" data-tour="help" onClick={p.onOpenTour} title="Ver el tutorial paso a paso" className="flex flex-col items-center gap-1 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70">
             <HelpCircle className="w-5 h-5" />
@@ -260,7 +270,7 @@ export function IconRail(p: IconRailProps) {
 
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Apariencia</h3>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
               {THEMES.map((t) => (
                 <button key={t.id} type="button" onClick={() => p.onTheme(t.id)} className={`flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs ${p.theme === t.id ? 'border-blue-600 text-blue-600 bg-blue-600/10' : 'border-slate-800 text-slate-300'}`}>
                   {t.icon}{t.label}
@@ -271,6 +281,7 @@ export function IconRail(p: IconRailProps) {
 
           <section className="space-y-1.5">
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Ayuda</h3>
+            <button type="button" onClick={() => { closeDrawer(); p.onOpenAssistant(); }} className="relative w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><Sparkles className="w-4 h-4 text-blue-600" />Asistente (sugerencias y presets){p.assistantAlert && <span className="ml-auto w-2 h-2 rounded-full bg-rose-500" />}</button>
             <button type="button" onClick={() => { closeDrawer(); p.onOpenTour(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><HelpCircle className="w-4 h-4 text-blue-600" />Tutorial paso a paso</button>
             <button type="button" onClick={() => { closeDrawer(); p.onOpenAbout(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><Info className="w-4 h-4 text-blue-600" />Nosotros</button>
             {p.canInstall && (

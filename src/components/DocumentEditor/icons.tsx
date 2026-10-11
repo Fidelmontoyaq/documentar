@@ -18,3 +18,27 @@ export function SignatureIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+const base = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
+
+/** Quitar fondo: una figura (persona) recortada con contorno punteado sobre un fondo que se va. */
+export function RemoveBgIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2.5" strokeDasharray="2.2 2.4" opacity=".55" />
+      <circle cx="12" cy="9.2" r="2.7" />
+      <path d="M6.6 19c.5-3.1 2.6-4.9 5.4-4.9s4.9 1.8 5.4 4.9" />
+    </svg>
+  );
+}
+
+/** Sticker: pegatina con una esquina despegada y una estrella. */
+export function StickerIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M20.5 12.5V7a3.5 3.5 0 0 0-3.5-3.5H7A3.5 3.5 0 0 0 3.5 7v10A3.5 3.5 0 0 0 7 20.5h5.5" />
+      <path d="M20.5 12.5c-4.2 0-8 3.8-8 8" />
+      <path d="m10 7.3.9 1.9 2.1.3-1.5 1.5.4 2.1-1.9-1-1.9 1 .4-2.1L7 9.5l2.1-.3z" />
+    </svg>
+  );
+}

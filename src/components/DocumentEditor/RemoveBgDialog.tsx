@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brush, Eraser, Hand, Loader2, Redo2, RotateCcw, Sparkles, Undo2, Wand2, X, ZoomIn, ZoomOut, PaintBucket } from 'lucide-react';
+import { Brush, Eraser, Hand, Loader2, Redo2, RotateCcw, Sparkles, Undo2, Wand2, X, ZoomIn, ZoomOut, PaintBucket, UserRound, Trees, ScanFace } from 'lucide-react';
 import {
   aiRemoveBackground,
   autoRemoveBackground,
+  colorKeyRemove,
+  refineFineEdges,
+  type AiKind,
   composeRgba,
   createMaskImage,
   featherEdge,
@@ -22,7 +25,7 @@ interface Props {
   onApply: (dataUrl: string, w: number, h: number) => void;
 }
 
-type Tool = 'auto' | 'wand' | 'brush' | 'hand';
+type Tool = 'auto' | 'hard' | 'wand' | 'brush' | 'hand';
 type Bg = 'checker' | 'white' | 'black' | 'green';
 
 const MAX_SIDE = 2048;
@@ -58,6 +61,8 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
   const [tol, setTol] = useState(18);
   const [contiguous, setContiguous] = useState(true);
   const [holes, setHoles] = useState(false);
+  const [hardMode, setHardMode] = useState<'color' | null>(null);
+  const [soften, setSoften] = useState(50);
   const [brushMode, setBrushMode] = useState<'erase' | 'restore'>('erase');
   const [brushSize, setBrushSize] = useState(28);
   const [soft, setSoft] = useState(40);
@@ -156,8 +161,12 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
   // ---- coordenadas pantalla → imagen
   const toImg = (e: React.PointerEvent) => {
     const cv = canvasRef.current!;
+    // El lienzo se ve con «object-fit: contain»: hay que descontar los márgenes para que el puntero caiga justo donde se toca.
     const r = cv.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * cv.width, y: ((e.clientY - r.top) / r.height) * cv.height, k: cv.width / r.width };
+    const s = Math.min(r.width / cv.width, r.height / cv.height);
+    const offX = (r.width - cv.width * s) / 2;
+    const offY = (r.height - cv.height * s) / 2;
+    return { x: (e.clientX - r.left - offX) / s, y: (e.clientY - r.top - offY) / s, k: 1 / s };
   };
 
   const brushRadiusImg = (k: number) => Math.max(1, (brushSize / 2) * k);
@@ -178,8 +187,16 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
 
   const onDown = (e: React.PointerEvent) => {
     const mi = miRef.current;
-    if (!mi || tool === 'hand' || tool === 'auto') return;
+    if (!mi || tool === 'hand' || tool === 'auto' || (tool === 'hard' && hardMode !== 'color')) return;
     const p = toImg(e);
+    if (tool === 'hard') {
+      pushUndo();
+      const n = colorKeyRemove(mi, p.x, p.y, tol, soften / 100);
+      setMsg(n ? 'Listo. Toca otro color del fondo si aún queda alguno (por ejemplo, otro tono de cielo).' : 'Ahí ya estaba transparente.');
+      render();
+      bump();
+      return;
+    }
     if (tool === 'wand') {
       pushUndo();
       const n = wandRemove(mi, p.x, p.y, tol, contiguous);
@@ -223,14 +240,15 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     bump();
   };
 
-  const runAi = async () => {
+  const runAi = async (kind: AiKind = 'general', refine = false) => {
     const mi = miRef.current;
     if (!mi) return;
     setAi({ text: 'Preparando…' });
     setMsg(null);
     const before = new Uint8ClampedArray(mi.mask);
     try {
-      await aiRemoveBackground(mi, (text, pct) => setAi({ text, pct }));
+      await aiRemoveBackground(mi, (text, pct) => setAi({ text, pct }), kind);
+      if (refine) refineFineEdges(mi, 6);
       // pushUndo con el estado previo (la máscara ya cambió).
       undoRef.current.push(before);
       if (undoRef.current.length > HISTORY) undoRef.current.shift();
@@ -285,7 +303,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
   const tabBtn = (id: Tool, label: string, icon: React.ReactNode) => (
     <button
       type="button"
-      onClick={() => setTool(id)}
+      onClick={() => { setTool(id); if (id !== 'hard') setHardMode(null); }}
       className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-lg text-[11px] font-medium border transition ${tool === id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'}`}
     >
       {icon}
@@ -296,7 +314,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
   const act = 'w-full py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 transition';
   const iconBtn = 'w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white disabled:opacity-30';
 
-  const canvasStyle = useMemo<React.CSSProperties>(() => ({ width: `${zoom * 100}%`, touchAction: tool === 'hand' ? 'auto' : 'none', cursor: tool === 'brush' ? 'none' : tool === 'wand' ? 'crosshair' : tool === 'hand' ? 'grab' : 'default' }), [zoom, tool]);
+  const canvasStyle = useMemo<React.CSSProperties>(() => ({ width: `${zoom * 100}%`, touchAction: tool === 'hand' ? 'auto' : 'none', cursor: tool === 'brush' ? 'none' : tool === 'wand' || (tool === 'hard' && hardMode) ? 'crosshair' : tool === 'hand' ? 'grab' : 'default' }), [zoom, tool]);
 
   if (!open) return null;
 
@@ -332,7 +350,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
                 onPointerLeave={() => cursorRef.current && (cursorRef.current.style.display = 'none')}
               />
             )}
-            <div ref={cursorRef} className="pointer-events-none absolute top-0 left-0 rounded-full border-2 border-white mix-blend-difference hidden" />
+            <div ref={cursorRef} className="pointer-events-none absolute top-0 left-0 rounded-full border-2 hidden" style={{ borderColor: brushMode === 'erase' ? '#f43f5e' : '#10b981', boxShadow: '0 0 0 1px #fff, inset 0 0 0 1px #fff', background: brushMode === 'erase' ? 'rgba(244,63,94,.12)' : 'rgba(16,185,129,.12)' }} />
           </div>
         </div>
         <div className="px-3 py-1.5 border-t border-slate-800 bg-slate-900 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -353,6 +371,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
         <div className="p-3 space-y-3 overflow-y-auto flex-1 min-h-0">
           <div className="flex gap-1.5">
             {tabBtn('auto', 'Automático', <Sparkles className="w-4 h-4" />)}
+            {tabBtn('hard', 'Difíciles', <ScanFace className="w-4 h-4" />)}
             {tabBtn('wand', 'Varita', <Wand2 className="w-4 h-4" />)}
             {tabBtn('brush', 'Pincel', <Brush className="w-4 h-4" />)}
             {tabBtn('hand', 'Mover', <Hand className="w-4 h-4" />)}
@@ -360,7 +379,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
 
           {tool === 'auto' && (
             <div className="space-y-2.5">
-              <button type="button" disabled={!ready || !!ai} onClick={() => void runAi()} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+              <button type="button" disabled={!ready || !!ai} onClick={() => void runAi('general')} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
                 {ai ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                 Quitar fondo con IA
               </button>
@@ -380,6 +399,38 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
                   <input type="checkbox" checked={holes} onChange={(e) => setHoles(e.target.checked)} /> También quitar huecos del mismo color
                 </label>
                 <button type="button" disabled={!ready} onClick={runAuto} className={`${act} mt-2`}><PaintBucket className="inline w-3.5 h-3.5 mr-1.5" />Quitar fondo liso (por el borde)</button>
+              </div>
+            </div>
+          )}
+
+          {tool === 'hard' && (
+            <div className="space-y-2.5">
+              <p className="text-[11px] text-slate-400">Para fondos complicados: personas con cabello, árboles con cielo entre las hojas…</p>
+              <button type="button" disabled={!ready || !!ai} onClick={() => { setHardMode(null); void runAi('portrait', true); }} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+                {ai ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserRound className="w-4 h-4" />} Silueta de persona (con cabello)
+              </button>
+              {ai && (
+                <div className="text-[11px] text-slate-300">
+                  {ai.text}
+                  {typeof ai.pct === 'number' && <div className="h-1.5 mt-1 rounded bg-slate-700 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${Math.round(ai.pct)}%` }} /></div>}
+                </div>
+              )}
+              <button type="button" disabled={!ready || !!ai} onClick={() => { setHardMode(null); edge((m) => { const n = refineFineEdges(m, 6); setMsg(n ? 'Bordes finos recuperados. Compara con el fondo de vista oscuro y claro.' : 'No encontré mechones que recuperar (el fondo y el objeto son muy parecidos).'); }); }} className={act}>
+                <ScanFace className="inline w-3.5 h-3.5 mr-1.5" /> Cabello y bordes finos (después de quitar el fondo)
+              </button>
+              <div className={`rounded-xl border p-2.5 space-y-2 ${hardMode === 'color' ? 'border-blue-500 bg-blue-600/10' : 'border-slate-700'}`}>
+                <button type="button" disabled={!ready} onClick={() => setHardMode(hardMode === 'color' ? null : 'color')} className={`${act} ${hardMode === 'color' ? '!bg-blue-600 !border-blue-500 !text-white' : ''}`}>
+                  <Trees className="inline w-3.5 h-3.5 mr-1.5" /> Árbol, hojas o cielo entre ramas
+                </button>
+                <p className="text-[10px] text-slate-400">{hardMode === 'color' ? 'Toca el color del fondo (el cielo). Se quita en TODA la imagen, también entre las hojas y las ramas.' : 'Activa y toca el color del fondo: se quita en toda la imagen, incluso en los huecos.'}</p>
+                <div>
+                  <div className={lbl}><span>Tolerancia</span><span>{tol}</span></div>
+                  <input type="range" min={1} max={60} value={tol} onChange={(e) => setTol(Number(e.target.value))} className="w-full" />
+                </div>
+                <div>
+                  <div className={lbl}><span>Suavidad del borde</span><span>{soften}%</span></div>
+                  <input type="range" min={5} max={150} value={soften} onChange={(e) => setSoften(Number(e.target.value))} className="w-full" />
+                </div>
               </div>
             </div>
           )}

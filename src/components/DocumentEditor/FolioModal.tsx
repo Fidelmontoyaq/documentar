@@ -17,6 +17,8 @@ import { BATCH_ACCEPT, downloadBlob, foliateFiles, type FolioBatchFileResult } f
 import { FontPicker } from './FontPicker';
 
 interface FolioModalProps {
+  /** Abrir directamente en «Varios archivos» (sin tocar el documento). */
+  startTab?: 'doc' | 'batch';
   open: boolean;
   onClose: () => void;
   engine: DocumentEditorEngine | null;
@@ -72,7 +74,7 @@ function Preview({ cfg, index, total }: { cfg: FolioConfig; index: number; total
  * transparencia) que se usa de dos maneras: sobre el documento abierto o
  * aplicado a muchos archivos a la vez, descargándolos ya foliados.
  */
-export function FolioModal({ open, onClose, engine, pageCount, recentFonts }: FolioModalProps) {
+export function FolioModal({ open, onClose, engine, pageCount, recentFonts, startTab }: FolioModalProps) {
   const [cfg, setCfg] = useState<FolioConfig>(() => loadFolioConfig());
   const [tab, setTab] = useState<'doc' | 'batch'>('doc');
   const [files, setFiles] = useState<File[]>([]);
@@ -90,7 +92,8 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts }: Fo
     setCfg((prev) => ({ ...prev, enabled: live.enabled }));
     setResults(null);
     setBatchError(null);
-  }, [open, engine]);
+    if (startTab) setTab(startTab);
+  }, [open, engine, startTab]);
 
   const update = (patch: Partial<FolioConfig>) => {
     setCfg((prev) => {

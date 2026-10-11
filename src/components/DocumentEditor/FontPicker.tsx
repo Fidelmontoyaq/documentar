@@ -147,12 +147,12 @@ export function FontPicker({ value, recentFonts, onChange, placeholder = 'Fuente
   const row = (f: LibFont, key: string) => {
     const on = f.value === value || f.label === fontLabelFor(value);
     return (
-      <div key={key} className={`group flex items-center ${on ? 'bg-blue-600/20' : 'hover:bg-slate-800'}`}>
+      <div key={key} className={`group flex items-center border-b border-slate-800/60 ${on ? 'bg-blue-600/20' : 'hover:bg-slate-800'}`}>
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => pick(f)}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left px-3 py-[7px]"
+          className="flex-1 min-w-0 flex items-center gap-2 text-left px-3 py-[10px]"
         >
           <span className="truncate text-[15px] leading-tight text-slate-100" style={{ fontFamily: f.value }}>{f.label}</span>
           <span className="ml-auto shrink-0 text-xs text-slate-500" style={{ fontFamily: f.value }}>AaBbCc</span>

@@ -208,7 +208,18 @@ body.de-light {
   --slate-800: 238 242 247; --slate-900: 255 255 255; --slate-950: 255 255 255;
   color-scheme: light;
 }
-body.de-dark { color-scheme: dark; }
+/* Oscuro suave (gris carbón, como los programas actuales). «Marino» = el azul oscuro de antes (valores de :root). */
+body.de-dark {
+  --slate-50: 237 240 245; --slate-100: 224 228 235; --slate-200: 200 206 216; --slate-300: 168 175 188;
+  --slate-400: 135 143 158; --slate-500: 108 116 131; --slate-600: 78 85 98; --slate-700: 62 68 79;
+  --slate-800: 47 52 61; --slate-900: 36 40 47; --slate-950: 28 31 37;
+  color-scheme: dark;
+}
+body.de-dark .doc-editor ::-webkit-scrollbar-track { background: #24282f; }
+body.de-dark .doc-editor ::-webkit-scrollbar-thumb { background: #4e5562; }
+body.de-dark .element-toolbar .et-btn:hover { background: #3a404b; }
+body.de-dark .element-toolbar .et-sep { background: #4e5562; }
+body.de-dark .zoom-range { background: #4e5562; }
 
 body.de-light .doc-editor ::-webkit-scrollbar-track { background: #eef2f7; }
 body.de-light .doc-editor ::-webkit-scrollbar-thumb { background: #c3cddb; }
@@ -241,3 +252,14 @@ body.de-light .bg-slate-950\/90, body.de-light .bg-slate-950\/70 { background-co
 
 #editorContainer { -webkit-overflow-scrolling: touch; scroll-snap-type: none; }
 @media (max-width: 767px) { #pagesWrapper { scroll-behavior: auto; } }
+
+/* ===== La hoja es papel: siempre blanca con texto negro, sea cual sea el tema de la interfaz ===== */
+.a4-page {
+  --slate-50: 248 250 252; --slate-100: 241 245 249; --slate-200: 226 232 240; --slate-300: 203 213 225;
+  --slate-400: 148 163 184; --slate-500: 100 116 139; --slate-600: 71 85 105; --slate-700: 51 65 85;
+  --slate-800: 30 41 59; --slate-900: 15 23 42; --slate-950: 2 6 23;
+  color-scheme: light;
+}
+body .doc-editor .a4-page .text-white { color: #fff; }
+.a4-page [contenteditable="true"]:focus { background-color: transparent; }
+.a4-page .page-content, .a4-page .page-header, .a4-page .page-footer { color: #000; }

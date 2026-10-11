@@ -20,6 +20,7 @@ interface Step {
 
 const STEPS: Step[] = [
   { id: 'size', title: '1 · Elige el tipo de hoja', text: 'Empieza por el papel. Puedes cambiarlo después desde «Tamaño».', choose: true },
+  { id: 'quick', title: 'Tareas rápidas', text: 'Si solo quieres foliar varios archivos, quitar fondos o reordenar un PDF, entra por aquí: vas directo, sin preparar la hoja.', target: '[data-tour="quick"]' },
   { id: 'import', title: '2 · Sube tus archivos', text: 'Aquí subes PDF, Word o imágenes. También puedes arrastrarlos directo sobre la hoja.', target: '[data-tour="import"]' },
   { id: 'image', title: '3 · Agrega imágenes', text: 'Con este botón pones fotos en la hoja actual. Luego las mueves, giras y recortas con el dedo o el mouse.', target: '[data-tour="image"]' },
   { id: 'text', title: '4 · Escribe texto', text: 'Crea un cuadro de texto en cualquier parte. Al tocarlo, arriba aparecen la tipografía, el tamaño y el color.', target: '[data-tour="text"]' },
@@ -29,6 +30,7 @@ const STEPS: Step[] = [
   { id: 'top', title: '7 · Barra superior', text: 'Deshacer, rehacer, copiar y pegar siempre están aquí. Al seleccionar un texto o una imagen aparecen sus opciones.', target: '[data-element-toolbar]' },
   { id: 'pages', title: '8 · Tus hojas', text: 'Desliza hacia arriba o abajo para pasar de hoja en hoja. Con los dedos puedes hacer zoom; abajo está el control de zoom.', target: '#editorContainer' },
   { id: 'theme', title: '9 · Claro u oscuro', text: 'Cambia entre el tema claro (de oficina), el oscuro o el automático.', target: '[data-tour="theme"]', only: 'desktop' },
+  { id: 'assistant', title: 'Tu asistente', text: 'Aprende de lo que haces, te sugiere el siguiente paso, te avisa si te sales de tu rutina y aplica presets que puedes deshacer. Está en el menú (☰) del celular.', target: '[data-tour="assistant"]' },
   { id: 'export', title: '10 · Exporta', text: 'Cuando termines, descarga en PDF, PNG o JPG. ¡Listo! Puedes repetir este recorrido desde «Ayuda».', target: '[data-tour="export"]' },
 ];
 

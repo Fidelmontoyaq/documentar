@@ -9,6 +9,8 @@ interface EditorCanvasProps {
   onFit?: () => void;
   /** Archivos soltados sobre el lienzo (con la posición del puntero). */
   onDropFiles?: (files: File[], x: number, y: number) => void;
+  /** Controles flotantes extra (cambiar la vista, etc.). */
+  extra?: React.ReactNode;
 }
 
 /**
@@ -18,7 +20,7 @@ interface EditorCanvasProps {
  * React nunca reconcilia ese subárbol. Va dentro de un "shell" cuyo tamaño
  * el motor ajusta al zoom para que el scroll siga siendo correcto.
  */
-export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoomChange, onFit, onDropFiles }: EditorCanvasProps) {
+export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoomChange, onFit, onDropFiles, extra }: EditorCanvasProps) {
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
@@ -26,7 +28,7 @@ export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoom
 
   return (
     <div
-      className="relative flex-1 min-h-0 flex"
+      className="relative flex-1 min-h-0 min-w-0 flex"
       onDragEnter={(e) => {
         if (!onDropFiles || !hasFiles(e)) return;
         depth.current += 1;
@@ -58,6 +60,7 @@ export function EditorCanvas({ scrollContainerRef, pagesWrapperRef, zoom, onZoom
           </div>
         </div>
       )}
+      {extra}
       <main ref={scrollContainerRef} id="editorContainer" className="flex-1 bg-slate-950 p-2 md:p-8 pb-24 md:pb-20 overflow-auto">
         <div className="mx-auto">
           <div ref={pagesWrapperRef} id="pagesWrapper" className="w-[210mm] space-y-8" />

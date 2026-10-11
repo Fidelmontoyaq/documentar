@@ -4,9 +4,10 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, Sticker, Scissors,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, ChevronDown, MoreHorizontal,
 } from 'lucide-react';
 import { FontPicker } from './FontPicker';
+import { RemoveBgIcon, StickerIcon } from './icons';
 import { useState } from 'react';
 import { sizeLabel } from '../../engine/pageSizes';
 import type { PageInfo, ToolbarState } from '../../types/documentEditor';
@@ -64,6 +65,7 @@ export function ElementToolbar({
   onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, pdfEditOn,
 }: ElementToolbarProps) {
   const [stickerOpen, setStickerOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [stW, setStW] = useState(8);
   const [stColor, setStColor] = useState('#ffffff');
   const [stShadow, setStShadow] = useState(true);
@@ -80,35 +82,18 @@ export function ElementToolbar({
     </button>
   );
 
-  return (
-    <div
-      data-element-toolbar
-      className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800 px-2 md:px-3 py-2 flex items-center gap-1 md:flex-wrap overflow-x-auto md:overflow-visible min-h-[52px] [&>*]:shrink-0"
-    >
-      <button
-        type="button"
-        className="et-btn gap-1.5 !bg-slate-800 border border-slate-700 !text-slate-100"
-        title="Tamaño y fondo de la hoja (lienzo)"
-        onMouseDown={keep}
-        onClick={onOpenCanvas}
-      >
-        <Ruler className="w-4 h-4 text-blue-400" />
-        <span className="whitespace-nowrap">{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
-      </button>
-      <div className="et-sep" />
-      {b('Deshacer (Ctrl+Z)', onUndo, <Undo2 className="w-4 h-4" />, !history.canUndo)}
-      {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
-      <div className="et-sep" />
-      {b('Copiar (Ctrl+C)', onCopy, <Copy className="w-4 h-4" />)}
-      {b('Pegar (Ctrl+V)', onPaste, <ClipboardPaste className="w-4 h-4" />)}
-      <div className="et-sep" />
+  const sep = <div className="et-sep" />;
+  const label = (t: string) => <span className="text-[11px] text-slate-400 px-1 whitespace-nowrap">{t}</span>;
+  const sideBtns = [
+    ['Borde de arriba', PanelTop],
+    ['Borde derecho', PanelRight],
+    ['Borde de abajo', PanelBottom],
+    ['Borde izquierdo', PanelLeft],
+  ] as const;
 
-      {!state && (
-        <span className={`text-xs px-2 ${pdfEditOn ? 'text-blue-300' : 'text-slate-500'}`}>
-          {pdfEditOn ? 'Editar PDF: toca el texto del PDF que quieres cambiar' : 'Haz clic en un texto, cuadro de texto o imagen para ver sus opciones'}
-        </span>
-      )}
-
+  // ================= FILA 1: lo esencial de lo seleccionado =================
+  const primary = (
+    <>
       {isTextual && (
         <>
           <FontPicker compact value={state?.fontFamily ?? ''} recentFonts={recentFonts} onChange={onApplyFont} />
@@ -116,20 +101,18 @@ export function ElementToolbar({
             value={state?.fontSize ?? '16'}
             onChange={(e) => onApplyFontSize(e.target.value)}
             className="bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1.5 px-1 outline-none w-14"
+            title="Tamaño de letra"
           >
             {FONT_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
           </select>
-          <div className="et-sep" />
+          {sep}
           {b('Negrita', () => onFormat('bold'), <Bold className="w-4 h-4" />)}
           {b('Cursiva', () => onFormat('italic'), <Italic className="w-4 h-4" />)}
           {b('Subrayado', () => onFormat('underline'), <Underline className="w-4 h-4" />)}
-          {b('Tachado', () => onFormat('strikeThrough'), <Strikethrough className="w-4 h-4" />)}
-          <div className="et-sep" />
+          {sep}
           {b('Alinear izquierda', () => onFormat('justifyLeft'), <AlignLeft className="w-4 h-4" />)}
           {b('Centrar', () => onFormat('justifyCenter'), <AlignCenter className="w-4 h-4" />)}
           {b('Alinear derecha', () => onFormat('justifyRight'), <AlignRight className="w-4 h-4" />)}
-          {b('Justificar', () => onFormat('justifyFull'), <AlignJustify className="w-4 h-4" />)}
-          {b('Lista de viñetas', () => onFormat('insertUnorderedList'), <List className="w-4 h-4" />)}
           <label className="et-btn cursor-pointer" title="Color de texto" onMouseDown={onSaveSelection}>
             <Palette className="w-4 h-4" />
             <input type="color" className="hidden" onChange={(e) => onFormat('foreColor', e.target.value)} />
@@ -137,18 +120,94 @@ export function ElementToolbar({
         </>
       )}
 
+      {isImage && (
+        <>
+          <button type="button" className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`} title="Recortar (tecla C). La imagen no se borra, solo se oculta la parte recortada." onMouseDown={keep} onClick={onToggleCrop}>
+            <Crop className="w-4 h-4" /> <span>{state?.cropping ? 'Listo' : 'Recortar'}</span>
+          </button>
+          {state?.cropping && (
+            <>
+              {b('Acercar imagen', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
+              {b('Alejar imagen', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
+            </>
+          )}
+          <button type="button" className="et-btn gap-1" title="Quitar el fondo de la imagen (IA, varita, pincel…)" onMouseDown={keep} onClick={onRemoveBg}>
+            <RemoveBgIcon className="w-4 h-4" /> <span>Quitar fondo</span>
+          </button>
+          <button type="button" className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`} title="Borde de sticker: contorno alrededor de la figura" onMouseDown={keep} onClick={() => setStickerOpen((v) => !v)}>
+            <StickerIcon className="w-4 h-4" /> <span>Sticker</span>
+          </button>
+        </>
+      )}
+
+      {isShapeLike && sh && (
+        <>
+          {isFrame && (
+            <>
+              <button type="button" className="et-btn gap-1" title="Elegir la imagen del marco" onMouseDown={keep} onClick={onPickFrameImage}>
+                <ImagePlus className="w-4 h-4" /> <span>{sh.frameFilled ? 'Cambiar' : 'Imagen'}</span>
+              </button>
+              {sh.frameFilled && (
+                <button type="button" className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`} title="Mover y acercar la imagen dentro del marco (tecla C)" onMouseDown={keep} onClick={onToggleCrop}>
+                  <Crop className="w-4 h-4" /> <span>{state?.cropping ? 'Listo' : 'Ajustar'}</span>
+                </button>
+              )}
+              {sep}
+            </>
+          )}
+          <button type="button" className={`et-btn gap-1 ${sh.fillOn ? '!bg-slate-700 !text-white' : ''}`} title={sh.fillOn ? 'Con relleno (clic para dejar solo el borde)' : 'Solo borde (clic para rellenar)'} onMouseDown={keep} onClick={() => onShapeProps({ fillOn: !sh.fillOn })}>
+            <PaintBucket className="w-4 h-4" /> <span>{sh.fillOn ? 'Relleno' : 'Sin relleno'}</span>
+          </button>
+          <label className="et-btn cursor-pointer" title="Color de relleno">
+            <span className="w-4 h-4 rounded border border-slate-500" style={{ background: sh.fill }} />
+            <input type="color" className="hidden" value={sh.fill} onChange={(e) => onShapeProps({ fill: e.target.value, fillOn: true })} />
+          </label>
+          {sep}
+          <label className="et-btn cursor-pointer" title="Color del borde">
+            <span className="w-4 h-4 rounded border-2" style={{ borderColor: sh.borderColor }} />
+            <input type="color" className="hidden" value={sh.borderColor} onChange={(e) => onShapeProps({ borderColor: e.target.value })} />
+          </label>
+          <input type="number" min={0} max={60} value={sh.borderWidth} onChange={(e) => onShapeProps({ borderWidth: Number(e.target.value) || 0 })} className="w-12 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1 px-1.5 outline-none" title="Grosor del borde (px)" />
+        </>
+      )}
+
+      {isBox && (
+        <>
+          {sep}
+          {b('Duplicar', onDuplicate, <CopyPlus className="w-4 h-4" />)}
+          {b('Eliminar (Supr)', onDelete, <Trash2 className="w-4 h-4" />, false, 'hover:!bg-rose-600')}
+        </>
+      )}
+    </>
+  );
+
+  // ================= FILA 2 («Más»): el resto de opciones =================
+  const more = (
+    <>
+      {/* En el celular, lo de siempre cabe aquí para que la fila de arriba quede limpia. */}
+      <div className="md:hidden flex items-center gap-1">
+        <button type="button" className="et-btn gap-1.5 !bg-slate-800 border border-slate-700" title="Tamaño y fondo de la hoja" onMouseDown={keep} onClick={onOpenCanvas}>
+          <Ruler className="w-4 h-4 text-blue-400" /> <span>{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
+        </button>
+        {b('Copiar', onCopy, <Copy className="w-4 h-4" />)}
+        {b('Pegar', onPaste, <ClipboardPaste className="w-4 h-4" />)}
+      </div>
+
+      {isTextual && (
+        <>
+          {b('Tachado', () => onFormat('strikeThrough'), <Strikethrough className="w-4 h-4" />)}
+          {b('Justificar', () => onFormat('justifyFull'), <AlignJustify className="w-4 h-4" />)}
+          {b('Lista de viñetas', () => onFormat('insertUnorderedList'), <List className="w-4 h-4" />)}
+        </>
+      )}
+
       {state?.isBox && (state.boxType === 'text' || state.boxType === 'caption') && (
         <>
-          <div className="et-sep" />
+          {sep}
           <label className="et-btn cursor-pointer gap-1" title="Pintar la casilla de texto">
             <PaintBucket className="w-4 h-4" style={{ color: state.fill || undefined }} />
             <span>Relleno</span>
-            <input
-              type="color"
-              className="hidden"
-              value={state.fill || '#ffffff'}
-              onChange={(e) => onSetFill(e.target.value)}
-            />
+            <input type="color" className="hidden" value={state.fill || '#ffffff'} onChange={(e) => onSetFill(e.target.value)} />
           </label>
           {b('Sin relleno', () => onSetFill(null), <Ban className="w-4 h-4" />, !state.fill)}
         </>
@@ -156,22 +215,10 @@ export function ElementToolbar({
 
       {state && state.captionGap !== null && (
         <>
-          <div className="et-sep" />
-          <span className="text-[11px] text-slate-400 px-1">Separación del pie</span>
-          <input
-            type="range"
-            min={-60}
-            max={150}
-            value={state.captionGap}
-            onChange={(e) => onCaptionGap(Number(e.target.value))}
-            className="zoom-range !w-24"
-          />
-          <input
-            type="number"
-            value={state.captionGap}
-            onChange={(e) => onCaptionGap(Number(e.target.value) || 0)}
-            className="w-14 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1 px-1.5 outline-none"
-          />
+          {sep}
+          {label('Separación del pie')}
+          <input type="range" min={-60} max={150} value={state.captionGap} onChange={(e) => onCaptionGap(Number(e.target.value))} className="zoom-range !w-24" />
+          <input type="number" value={state.captionGap} onChange={(e) => onCaptionGap(Number(e.target.value) || 0)} className="w-14 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1 px-1.5 outline-none" />
           <span className="text-[11px] text-slate-500">px</span>
           {b('Reajustar pie (centrado bajo la imagen)', onCaptionReset, <RotateCcw className="w-4 h-4" />)}
           <button type="button" className="et-btn" title="Aplicar esta separación a todos los pies de foto" onMouseDown={keep} onClick={onCaptionGapAll}>
@@ -182,173 +229,48 @@ export function ElementToolbar({
 
       {isImage && (
         <>
-          <div className="et-sep" />
-          <button
-            type="button"
-            className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`}
-            title="Recortar (tecla C). La imagen no se borra, solo se oculta la parte recortada."
-            onMouseDown={keep}
-            onClick={onToggleCrop}
-          >
-            <Crop className="w-4 h-4" />
-            <span>{state?.cropping ? 'Listo' : 'Recortar'}</span>
-          </button>
-          {state?.cropping && (
-            <>
-              {b('Acercar imagen', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
-              {b('Alejar imagen', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
-              <span className="text-[11px] text-amber-300 px-1 hidden lg:inline">
-                Arrastra la imagen para moverla; los bordes de la caja recortan; Esc para terminar
-              </span>
-            </>
-          )}
-          {state?.hasCrop && !state.cropping && (
-            b('Quitar recorte', onResetCrop, <RotateCcw className="w-4 h-4" />)
-          )}
-          <div className="et-sep" />
-          <span className="text-[11px] text-slate-400 px-1">Esquinas</span>
-          <input
-            type="range"
-            min={0}
-            max={50}
-            value={state?.imageRadiusPct ?? 0}
-            onChange={(e) => onRadius(Number(e.target.value))}
-            className="zoom-range !w-20"
-            title="Redondear las esquinas de la imagen"
-          />
+          {state?.hasCrop && !state.cropping && b('Quitar recorte', onResetCrop, <RotateCcw className="w-4 h-4" />)}
+          {sep}
+          {label('Esquinas')}
+          <input type="range" min={0} max={50} value={state?.imageRadiusPct ?? 0} onChange={(e) => onRadius(Number(e.target.value))} className="zoom-range !w-20" title="Redondear las esquinas de la imagen" />
           <span className="text-[11px] text-slate-500 w-8">{Math.round(state?.imageRadiusPct ?? 0)}%</span>
-          <button
-            type="button"
-            className="et-btn gap-1"
-            title="Quitar el fondo de la imagen (IA, varita o pincel)"
-            onMouseDown={keep}
-            onClick={onRemoveBg}
-          >
-            <Scissors className="w-4 h-4" /> <span>Quitar fondo</span>
-          </button>
-          <button
-            type="button"
-            className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`}
-            title="Borde de sticker: contorno alrededor de la figura"
-            onMouseDown={keep}
-            onClick={() => setStickerOpen((v) => !v)}
-          >
-            <Sticker className="w-4 h-4" /> <span>Sticker</span>
-          </button>
         </>
       )}
 
       {isShapeLike && sh && (
         <>
-          <div className="et-sep" />
-          {isFrame && (
+          {isFrame && sh.frameFilled && (
             <>
-              <button type="button" className="et-btn gap-1" title="Elegir la imagen del marco" onMouseDown={keep} onClick={onPickFrameImage}>
-                <ImagePlus className="w-4 h-4" /> <span>{sh.frameFilled ? 'Cambiar' : 'Imagen'}</span>
-              </button>
-              {sh.frameFilled && (
+              {state?.cropping && (
                 <>
-                  <button
-                    type="button"
-                    className={`et-btn gap-1 ${state?.cropping ? '!bg-amber-500 !text-slate-900' : ''}`}
-                    title="Mover y acercar la imagen dentro del marco (tecla C)"
-                    onMouseDown={keep}
-                    onClick={onToggleCrop}
-                  >
-                    <Crop className="w-4 h-4" /> <span>{state?.cropping ? 'Listo' : 'Ajustar'}</span>
-                  </button>
-                  {state?.cropping && (
-                    <>
-                      {b('Acercar', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
-                      {b('Alejar', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
-                    </>
-                  )}
-                  {b('Llenar el marco', () => onFrameFit('cover'), <Maximize className="w-4 h-4" />)}
-                  {b('Mostrar entera', () => onFrameFit('contain'), <Minimize className="w-4 h-4" />)}
-                  {b('Quitar imagen', onClearFrameImage, <ImageOff className="w-4 h-4" />)}
+                  {b('Acercar', () => onCropZoom(1), <ZoomIn className="w-4 h-4" />)}
+                  {b('Alejar', () => onCropZoom(-1), <ZoomOut className="w-4 h-4" />)}
                 </>
               )}
-              <div className="et-sep" />
+              {b('Llenar el marco', () => onFrameFit('cover'), <Maximize className="w-4 h-4" />)}
+              {b('Mostrar entera', () => onFrameFit('contain'), <Minimize className="w-4 h-4" />)}
+              {b('Quitar imagen', onClearFrameImage, <ImageOff className="w-4 h-4" />)}
+              {sep}
             </>
           )}
-          <button
-            type="button"
-            className={`et-btn gap-1 ${sh.fillOn ? '!bg-slate-700 !text-white' : ''}`}
-            title={sh.fillOn ? 'Con relleno (clic para dejar solo el borde)' : 'Solo borde (clic para rellenar)'}
-            onMouseDown={keep}
-            onClick={() => onShapeProps({ fillOn: !sh.fillOn })}
-          >
-            <PaintBucket className="w-4 h-4" /> <span>{sh.fillOn ? 'Relleno' : 'Sin relleno'}</span>
-          </button>
-          <label className="et-btn cursor-pointer" title="Color de relleno">
-            <span className="w-4 h-4 rounded border border-slate-500" style={{ background: sh.fill }} />
-            <input type="color" className="hidden" value={sh.fill} onChange={(e) => onShapeProps({ fill: e.target.value, fillOn: true })} />
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(sh.fillOpacity * 100)}
-            onChange={(e) => onShapeProps({ fillOpacity: Number(e.target.value) / 100, fillOn: true })}
-            className="zoom-range !w-16"
-            title="Opacidad del relleno"
-          />
-          <div className="et-sep" />
-          <span className="text-[11px] text-slate-400 px-1">Borde</span>
-          <label className="et-btn cursor-pointer" title="Color del borde">
-            <span className="w-4 h-4 rounded border-2" style={{ borderColor: sh.borderColor }} />
-            <input type="color" className="hidden" value={sh.borderColor} onChange={(e) => onShapeProps({ borderColor: e.target.value })} />
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={60}
-            value={sh.borderWidth}
-            onChange={(e) => onShapeProps({ borderWidth: Number(e.target.value) || 0 })}
-            className="w-12 bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 py-1 px-1.5 outline-none"
-            title="Grosor del borde (px)"
-          />
-          <button
-            type="button"
-            className={`et-btn ${sh.sides.every(Boolean) ? '!bg-slate-700 !text-white' : ''}`}
-            title="Borde en todos los lados"
-            onMouseDown={keep}
-            onClick={() => onAllSides(true)}
-          >
+          {label('Opacidad')}
+          <input type="range" min={0} max={100} value={Math.round(sh.fillOpacity * 100)} onChange={(e) => onShapeProps({ fillOpacity: Number(e.target.value) / 100, fillOn: true })} className="zoom-range !w-16" title="Opacidad del relleno" />
+          {sep}
+          {label('Bordes')}
+          <button type="button" className={`et-btn ${sh.sides.every(Boolean) ? '!bg-slate-700 !text-white' : ''}`} title="Borde en todos los lados" onMouseDown={keep} onClick={() => onAllSides(true)}>
             <Square className="w-4 h-4" />
           </button>
-          {(
-            [
-              ['Borde de arriba', PanelTop],
-              ['Borde derecho', PanelRight],
-              ['Borde de abajo', PanelBottom],
-              ['Borde izquierdo', PanelLeft],
-            ] as const
-          ).map(([label, Icon], i) => (
-            <button
-              key={label}
-              type="button"
-              className={`et-btn ${sh.sides[i] ? '!bg-blue-600 !text-white' : ''}`}
-              title={`${label} (clic para activar o quitar)`}
-              onMouseDown={keep}
-              onClick={() => onToggleSide(i)}
-            >
+          {sideBtns.map(([lbl, Icon], i) => (
+            <button key={lbl} type="button" className={`et-btn ${sh.sides[i] ? '!bg-blue-600 !text-white' : ''}`} title={`${lbl} (clic para activar o quitar)`} onMouseDown={keep} onClick={() => onToggleSide(i)}>
               <Icon className="w-4 h-4" />
             </button>
           ))}
           {b('Sin bordes', () => onAllSides(false), <Ban className="w-4 h-4" />)}
           {sh.kind !== 'ellipse' && (
             <>
-              <div className="et-sep" />
-              <span className="text-[11px] text-slate-400 px-1">Esquinas</span>
-              <input
-                type="range"
-                min={0}
-                max={50}
-                value={sh.radiusPct}
-                onChange={(e) => onRadius(Number(e.target.value))}
-                className="zoom-range !w-20"
-              />
+              {sep}
+              {label('Esquinas')}
+              <input type="range" min={0} max={50} value={sh.radiusPct} onChange={(e) => onRadius(Number(e.target.value))} className="zoom-range !w-20" />
             </>
           )}
         </>
@@ -356,23 +278,69 @@ export function ElementToolbar({
 
       {isBox && (
         <>
-          <div className="et-sep" />
-          {b('Duplicar', onDuplicate, <CopyPlus className="w-4 h-4" />)}
+          {sep}
           {b('Traer al frente', () => onLayer('front'), <ArrowUpWideNarrow className="w-4 h-4" />)}
           {b('Enviar atrás', () => onLayer('back'), <ArrowDownWideNarrow className="w-4 h-4" />)}
-          {b('Eliminar (Supr)', onDelete, <Trash2 className="w-4 h-4" />, false, 'hover:!bg-rose-600')}
         </>
       )}
-      {isImage && stickerOpen && (
-        <div
-          data-keep-selection
-          className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3"
+    </>
+  );
+
+  return (
+    <div data-element-toolbar className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800">
+      {/* Fila 1 (centrada): lo de siempre + lo esencial + botón «Más» */}
+      <div className="flex items-center justify-center gap-1 px-2 md:px-3 py-1.5 min-h-[46px] flex-wrap [&>*]:shrink-0">
+        <button type="button" className="max-md:hidden et-btn gap-1.5 !bg-slate-800 border border-slate-700 !text-slate-100" title="Tamaño y fondo de la hoja (lienzo)" onMouseDown={keep} onClick={onOpenCanvas}>
+          <Ruler className="w-4 h-4 text-blue-400" />
+          <span className="whitespace-nowrap">{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
+        </button>
+        <div className="et-sep max-md:hidden" />
+        {b('Deshacer (Ctrl+Z)', onUndo, <Undo2 className="w-4 h-4" />, !history.canUndo)}
+        {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
+        <div className="et-sep max-md:hidden" />
+        <span className="max-md:hidden inline-flex gap-1">
+          {b('Copiar (Ctrl+C)', onCopy, <Copy className="w-4 h-4" />)}
+          {b('Pegar (Ctrl+V)', onPaste, <ClipboardPaste className="w-4 h-4" />)}
+        </span>
+        <div className="et-sep" />
+
+        {!state && (
+          <span className={`text-xs px-2 whitespace-nowrap ${pdfEditOn ? 'text-blue-300' : 'text-slate-500'}`}>
+            {pdfEditOn ? 'Toca el texto del PDF que quieres cambiar' : 'Toca un texto, cuadro o imagen para ver sus opciones'}
+          </span>
+        )}
+        {primary}
+
+        <button
+          type="button"
+          onMouseDown={keep}
+          onClick={() => setMoreOpen((v) => !v)}
+          title={moreOpen ? 'Ocultar las demás opciones' : 'Mostrar todas las demás opciones'}
+          aria-expanded={moreOpen}
+          className={`inline-flex items-center gap-1 h-[30px] px-2.5 rounded-full text-xs font-medium border transition ${
+            moreOpen ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-100 hover:border-blue-500'
+          }`}
         >
+          <MoreHorizontal className="w-4 h-4" />
+          <span>{moreOpen ? 'Menos' : 'Más'}</span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {/* Fila 2 (segundo piso): se despliega con «Más» */}
+      {moreOpen && (
+        <div className="border-t border-slate-800 bg-slate-900/80 flex flex-wrap items-center justify-center gap-1 px-2 md:px-3 py-1.5">
+          {more}
+        </div>
+      )}
+
+      {isImage && stickerOpen && (
+        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-white">Borde de sticker</span>
             <button type="button" className="text-slate-400 hover:text-white text-xs" onClick={() => setStickerOpen(false)}>Cerrar</button>
           </div>
-          <p className="text-[11px] text-slate-400">Funciona mejor con imágenes PNG de fondo transparente. Se dibuja de verdad, así sale en el PNG exportado.</p>
+          <p className="text-[11px] text-slate-400">Funciona mejor con imágenes PNG de fondo transparente (usa «Quitar fondo» primero). Se dibuja de verdad, así sale en el PNG exportado.</p>
           <label className="block text-[11px] text-slate-400">Grosor: {stW}px
             <input type="range" min={2} max={40} value={stW} onChange={(e) => setStW(Number(e.target.value))} className="zoom-range !w-full mt-1" />
           </label>
