@@ -237,6 +237,8 @@ export class PdfEditController {
   private busy = false;
   private boundDown = (e: PointerEvent) => void this.onDown(e);
   private boundMove = (e: PointerEvent) => this.onMove(e);
+  private boundUp = (e: PointerEvent) => void this.onUp(e);
+  private touchStart: { x: number; y: number; t: number; id: number } | null = null;
 
   constructor(private host: PdfEditHost) {}
 
@@ -256,12 +258,14 @@ export class PdfEditController {
     if (on) {
       document.addEventListener('pointerdown', this.boundDown, true);
       document.addEventListener('pointermove', this.boundMove, true);
+      document.addEventListener('pointerup', this.boundUp, true);
       if (!this.host.pagesWrapper.querySelector('img[data-pdf-id]')) {
         this.host.notify('Sube un PDF para poder editar su texto.');
       }
     } else {
       document.removeEventListener('pointerdown', this.boundDown, true);
       document.removeEventListener('pointermove', this.boundMove, true);
+      document.removeEventListener('pointerup', this.boundUp, true);
       this.clearHover();
     }
     this.host.onModeChange(on);
@@ -270,6 +274,7 @@ export class PdfEditController {
   destroy() {
     document.removeEventListener('pointerdown', this.boundDown, true);
     document.removeEventListener('pointermove', this.boundMove, true);
+    document.removeEventListener('pointerup', this.boundUp, true);
   }
 
   // ---------------------------------------------------------- geometría y localización
@@ -353,12 +358,25 @@ export class PdfEditController {
     });
   }
 
-  private async onDown(e: PointerEvent) {
+  /** En pantallas táctiles el texto se abre al TOCAR (no al apoyar el dedo), así deslizar para cambiar de hoja nunca se interrumpe. */
+  private async onUp(e: PointerEvent) {
+    const st = this.touchStart;
+    this.touchStart = null;
+    if (!st || st.id !== e.pointerId || !this.on || this.busy) return;
+    if (Math.hypot(e.clientX - st.x, e.clientY - st.y) > 10 || performance.now() - st.t > 600) return;
+    await this.onDown(e, true);
+  }
+
+  private async onDown(e: PointerEvent, fromTap = false) {
     if (!this.on || this.busy) return;
     const t = e.target as HTMLElement;
     if (!t?.closest) return;
     if (this.editing && this.editing.el.contains(t)) return; // colocar el cursor
     if (t.closest('[data-element-toolbar],[data-keep-selection]')) return;
+    if (e.pointerType === 'touch' && !fromTap) {
+      this.touchStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+      return;
+    }
     const at = this.pdfImgAt(e.clientX, e.clientY);
     const run = at ? this.hit(at.page, at.img, e.clientX, e.clientY) : null;
     if (this.editing) await this.commit();

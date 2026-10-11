@@ -691,6 +691,33 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  /** Id de la hoja activa (la que se ve en pantalla). */
+  getActivePageId(): string | null {
+    return this.getActivePage()?.id ?? null;
+  }
+
+  /** Acciones sobre la hoja activa (para el menú del celular, donde los botones flotantes de la hoja se ocultan). */
+  pageAction(action: 'move-up' | 'move-down' | 'orientation' | 'duplicate' | 'delete') {
+    const id = this.getActivePageId();
+    if (!id) return;
+    switch (action) {
+      case 'move-up': this.movePageUp(id); break;
+      case 'move-down': this.movePageDown(id); break;
+      case 'orientation': this.togglePageOrientation(id); break;
+      case 'duplicate': this.duplicatePage(id); break;
+      case 'delete': this.deletePage(id); break;
+    }
+  }
+
+  /** Salta a la hoja anterior/siguiente. */
+  goToPage(delta: 1 | -1) {
+    const ids = this.getPageIds();
+    const cur = this.getActivePageId();
+    const i = cur ? ids.indexOf(cur) : 0;
+    const next = ids[Math.max(0, Math.min(ids.length - 1, i + delta))];
+    if (next) this.scrollToPage(next);
+  }
+
   scrollToPage(id: string) {
     const el = document.getElementById(id);
     if (!el) return;
