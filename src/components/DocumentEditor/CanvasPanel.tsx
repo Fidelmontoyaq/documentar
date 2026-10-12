@@ -129,9 +129,9 @@ export function CanvasPanel({ open, onClose, engine, info, pageCount, activeInde
   ];
 
   return createPortal(
-    <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[75] flex items-end md:items-start md:justify-end print:hidden max-md:pointer-events-auto md:pointer-events-none">
+    <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[75] flex items-end md:items-start md:justify-start print:hidden max-md:pointer-events-auto md:pointer-events-none">
       <div className="absolute inset-0 bg-slate-950/50 md:hidden" onClick={onClose} />
-      <div className="relative md:pointer-events-auto bg-slate-900 border border-slate-700 shadow-2xl w-full md:w-[400px] h-[90dvh] md:h-auto md:max-h-[calc(100vh-70px)] md:mt-[56px] md:mr-3 rounded-t-2xl md:rounded-2xl flex flex-col">
+      <div className="relative md:pointer-events-auto bg-slate-900 border border-slate-700 shadow-2xl w-full md:w-[400px] h-[90dvh] md:h-auto md:max-h-[calc(100vh-70px)] md:mt-[50px] md:ml-[96px] rounded-t-2xl md:rounded-2xl flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
           <div>
             <h2 className="text-white font-bold text-base leading-tight">Tamaño de hoja</h2>

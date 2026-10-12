@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { SlidersHorizontal, Hash, LayoutGrid, FileDown, Share2, ChevronDown } from 'lucide-react';
-import { LogoMark, PageSizeIcon } from './icons';
+import { SlidersHorizontal, Hash, LayoutGrid, Share2, ChevronDown, Keyboard } from 'lucide-react';
+import { LogoMark, PageSizeIcon, RemoveBgIcon } from './icons';
 import { SITE } from '../../engine/siteConfig';
 
 interface Props {
@@ -9,7 +9,8 @@ interface Props {
   onFormat: () => void;
   onFolio: () => void;
   onOrganize: () => void;
-  onDownload: () => void;
+  onRemoveBg: () => void;
+  onShortcuts: () => void;
   onShare: () => void;
   folioActive: boolean;
   formatActive: boolean;
@@ -22,6 +23,7 @@ export function TopBar(p: Props) {
     { id: 'size', label: 'Tamaño de hoja', short: 'Tamaño', title: 'Tamaño de la hoja o del lienzo (A4, Carta, redes sociales…)', icon: <PageSizeIcon className="w-[18px] h-[18px]" />, on: p.onSize, active: false },
     { id: 'format', label: 'Formato', short: 'Formato', title: 'Formato del documento (tipografía y márgenes)', icon: <SlidersHorizontal className="w-[18px] h-[18px]" />, on: p.onFormat, active: p.formatActive },
     { id: 'folio', label: 'Foliado', short: 'Foliado', title: 'Numerar las páginas (foliado)', icon: <Hash className="w-[18px] h-[18px]" />, on: p.onFolio, active: p.folioActive },
+    { id: 'removebg', label: 'Quitar fondo', short: 'Quitar fondo', title: 'Quitar el fondo de una imagen (o de varias a la vez)', icon: <RemoveBgIcon className="w-[18px] h-[18px]" />, on: p.onRemoveBg, active: false },
     { id: 'organize', label: 'Organizar páginas', short: 'Organizar', title: 'Organizar las páginas del documento', icon: <LayoutGrid className="w-[18px] h-[18px]" />, on: p.onOrganize, active: false },
   ];
 
@@ -60,11 +62,11 @@ export function TopBar(p: Props) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">
-        <button type="button" data-tour="share" onClick={p.onShare} title="Compartir el PDF por WhatsApp, correo u otras apps" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium border border-slate-700 text-slate-200 hover:border-slate-500 hover:text-white transition">
-          <Share2 className="w-4 h-4" /> <span className="max-sm:hidden">Compartir</span>
+        <button type="button" onClick={p.onShortcuts} title="Atajos de teclado (?)" className="max-md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/70 transition">
+          <Keyboard className="w-[18px] h-[18px]" />
         </button>
-        <button type="button" data-tour="export" onClick={p.onDownload} title="Descargar como PDF, PNG o JPG" className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-semibold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm" style={{ color: '#fff' }}>
-          <FileDown className="w-4 h-4" /> Descargar
+        <button type="button" data-tour="export" onClick={p.onShare} title="Descargar, o enviar por WhatsApp y otras apps" className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[13px] font-semibold bg-blue-600 hover:bg-blue-500 text-white transition shadow-sm" style={{ color: '#fff' }}>
+          <Share2 className="w-4 h-4" /> Compartir
         </button>
       </div>
     </header>

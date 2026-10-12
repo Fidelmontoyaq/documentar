@@ -4,8 +4,13 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, ChevronDown, MoreHorizontal,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Eraser, ChevronDown, MoreHorizontal,
 } from 'lucide-react';
+function CurveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 17C6 7 18 7 21 17" /><path d="M9 11l1.5 2M14 11l-1.5 2" opacity=".5" /></svg>
+  );
+}
 import { FontPicker } from './FontPicker';
 import { RemoveBgIcon, StickerIcon, PageSizeIcon } from './icons';
 import { useState } from 'react';
@@ -47,6 +52,9 @@ interface ElementToolbarProps {
   onOpenCanvas: () => void;
   onSticker: (opts: { width: number; color: string; shadow: boolean } | null) => void;
   onRemoveBg: () => void;
+  onRemoveObj: () => void;
+  getCurve: () => { cfg: { mode: 'up' | 'down' | 'circle'; sweep: number; spacing: number } | null; text: string } | null;
+  onCurve: (cfg: { mode: 'up' | 'down' | 'circle'; sweep: number; spacing: number } | null, text?: string) => void;
   pdfEditOn?: boolean;
 }
 
@@ -62,9 +70,20 @@ export function ElementToolbar({
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
   onToggleCrop, onResetCrop, onCropZoom, onRadius, onShapeProps, onToggleSide, onAllSides,
-  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, pdfEditOn,
+  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, onRemoveObj, getCurve, onCurve, pdfEditOn,
 }: ElementToolbarProps) {
   const [stickerOpen, setStickerOpen] = useState(false);
+  const [curveOpen, setCurveOpen] = useState(false);
+  const [cv, setCv] = useState<{ mode: 'straight' | 'up' | 'down' | 'circle'; sweep: number; spacing: number; text: string }>({ mode: 'up', sweep: 140, spacing: 0, text: '' });
+  const openCurve = () => {
+    const c = getCurve();
+    setCv({ mode: c?.cfg?.mode ?? 'straight', sweep: c?.cfg?.sweep ?? 140, spacing: c?.cfg?.spacing ?? 0, text: c?.text ?? '' });
+    setCurveOpen(true);
+  };
+  const pushCurve = (n: typeof cv) => {
+    setCv(n);
+    onCurve(n.mode === 'straight' ? null : { mode: n.mode, sweep: n.sweep, spacing: n.spacing }, n.text);
+  };
   const [moreOpen, setMoreOpen] = useState(false);
   const [stW, setStW] = useState(8);
   const [stColor, setStColor] = useState('#ffffff');
@@ -134,6 +153,9 @@ export function ElementToolbar({
           <button type="button" className="et-btn gap-1" title="Quitar el fondo de la imagen (IA, varita, pincel…)" onMouseDown={keep} onClick={onRemoveBg}>
             <RemoveBgIcon className="w-4 h-4" /> <span>Quitar fondo</span>
           </button>
+          <button type="button" className="et-btn gap-1" title="Quitar un objeto de la imagen y rellenar el hueco" onMouseDown={keep} onClick={onRemoveObj}>
+            <Eraser className="w-4 h-4" /> <span>Quitar objeto</span>
+          </button>
           <button type="button" className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`} title="Borde de sticker: contorno alrededor de la figura" onMouseDown={keep} onClick={() => setStickerOpen((v) => !v)}>
             <StickerIcon className="w-4 h-4" /> <span>Sticker</span>
           </button>
@@ -186,9 +208,6 @@ export function ElementToolbar({
     <>
       {/* En el celular, lo de siempre cabe aquí para que la fila de arriba quede limpia. */}
       <div className="md:hidden flex items-center gap-1">
-        <button type="button" className="et-btn gap-1.5 !bg-slate-800 border border-slate-700" title="Tamaño y fondo de la hoja" onMouseDown={keep} onClick={onOpenCanvas}>
-          <PageSizeIcon className="w-4 h-4 text-blue-400" /> <span>{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
-        </button>
         {b('Copiar', onCopy, <Copy className="w-4 h-4" />)}
         {b('Pegar', onPaste, <ClipboardPaste className="w-4 h-4" />)}
       </div>
@@ -201,6 +220,11 @@ export function ElementToolbar({
         </>
       )}
 
+      {state?.isBox && state.boxType === 'text' && (
+        <button type="button" className={`et-btn gap-1 ${curveOpen ? '!bg-slate-700 !text-white' : ''}`} title="Texto curvo: arco hacia arriba, hacia abajo o en círculo" onMouseDown={keep} onClick={() => (curveOpen ? setCurveOpen(false) : openCurve())}>
+          <CurveIcon /> <span>Curvo</span>
+        </button>
+      )}
       {state?.isBox && (state.boxType === 'text' || state.boxType === 'caption') && (
         <>
           {sep}
@@ -290,11 +314,6 @@ export function ElementToolbar({
     <div data-element-toolbar className="element-toolbar print:hidden shrink-0 bg-slate-900 border-b border-slate-800">
       {/* Fila 1 (centrada): lo de siempre + lo esencial + botón «Más» */}
       <div className="flex items-center justify-center gap-1 px-2 md:px-3 py-1.5 min-h-[46px] flex-wrap [&>*]:shrink-0">
-        <button type="button" className="max-md:hidden et-btn gap-1.5 !bg-slate-800 border border-slate-700 !text-slate-100" title="Tamaño y fondo de la hoja (lienzo)" onMouseDown={keep} onClick={onOpenCanvas}>
-          <PageSizeIcon className="w-4 h-4 text-blue-400" />
-          <span className="whitespace-nowrap">{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
-        </button>
-        <div className="et-sep max-md:hidden" />
         {b('Deshacer (Ctrl+Z)', onUndo, <Undo2 className="w-4 h-4" />, !history.canUndo)}
         {b('Rehacer (Ctrl+Y)', onRedo, <Redo2 className="w-4 h-4" />, !history.canRedo)}
         <div className="et-sep max-md:hidden" />
@@ -331,6 +350,34 @@ export function ElementToolbar({
       {moreOpen && (
         <div className="border-t border-slate-800 bg-slate-900/80 flex flex-wrap items-center justify-center gap-1 px-2 md:px-3 py-1.5">
           {more}
+        </div>
+      )}
+
+      {curveOpen && state?.boxType === 'text' && (
+        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-white">Texto curvo</span>
+            <button type="button" className="text-slate-400 hover:text-white text-xs" onClick={() => setCurveOpen(false)}>Cerrar</button>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {([['straight', 'Recto'], ['up', 'Arco ↑'], ['down', 'Arco ↓'], ['circle', 'Círculo']] as const).map(([m, l]) => (
+              <button key={m} type="button" onClick={() => pushCurve({ ...cv, mode: m })} className={`py-2 rounded-lg text-[11px] font-medium border ${cv.mode === m ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>{l}</button>
+            ))}
+          </div>
+          <label className="block text-[11px] text-slate-400">Texto
+            <input value={cv.text} onChange={(e) => pushCurve({ ...cv, text: e.target.value })} className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-blue-500" placeholder="Escribe el texto…" />
+          </label>
+          {(cv.mode === 'up' || cv.mode === 'down') && (
+            <label className="block text-[11px] text-slate-400">Curvatura: {cv.sweep}°
+              <input type="range" min={20} max={340} value={cv.sweep} onChange={(e) => pushCurve({ ...cv, sweep: Number(e.target.value) })} className="zoom-range !w-full mt-1" />
+            </label>
+          )}
+          {cv.mode !== 'straight' && (
+            <label className="block text-[11px] text-slate-400">Espacio entre letras: {cv.spacing}px
+              <input type="range" min={-2} max={30} value={cv.spacing} onChange={(e) => pushCurve({ ...cv, spacing: Number(e.target.value) })} className="zoom-range !w-full mt-1" />
+            </label>
+          )}
+          <p className="text-[10px] text-slate-500">La tipografía, tamaño y color se cambian con la barra de arriba. Agranda el cuadro para un arco más grande.</p>
         </div>
       )}
 

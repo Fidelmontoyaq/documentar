@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
-import { X, Combine, Scissors, LayoutGrid, Hash, FilePenLine, Download, Share2, Play, Check, ArrowRight } from 'lucide-react';
+import { X, Combine, Split, Scissors, FileOutput, FilePlus2, FileMinus2, LayoutGrid, Hash, FilePenLine, Eraser, SlidersHorizontal, Download, Share2, Play, Check, ArrowRight } from 'lucide-react';
 import { LogoMark, PageSizeIcon, RemoveBgIcon, SignatureIcon } from './icons';
 import { SITE } from '../../engine/siteConfig';
 
-export type HomeTask = 'merge' | 'split' | 'organize' | 'folio' | 'sign' | 'editpdf' | 'removebg' | 'design';
+export type HomeTask = 'merge' | 'split' | 'cut' | 'extract' | 'addpage' | 'delpages' | 'organize' | 'folio' | 'sign' | 'editpdf' | 'removebg' | 'removeobj' | 'size' | 'format';
 
 interface Props {
   open: boolean;
@@ -26,13 +26,19 @@ interface Card {
 
 const CARDS: Card[] = [
   { id: 'merge', title: 'Unir PDF', hint: 'Junta PDF y fotos en uno', icon: <Combine />, color: '#3f63a6' },
-  { id: 'split', title: 'Dividir PDF', hint: 'Por páginas o rangos', icon: <Scissors />, color: '#b0584a' },
-  { id: 'organize', title: 'Ordenar páginas', hint: 'Mover, girar o borrar', icon: <LayoutGrid />, color: '#397265', accept: '.pdf,.docx,.png,.jpg,.jpeg' },
+  { id: 'split', title: 'Dividir PDF', hint: 'Por páginas, cada N o rangos', icon: <Split />, color: '#b0584a' },
+  { id: 'cut', title: 'Cortar PDF', hint: 'En dos partes, donde quieras', icon: <Scissors />, color: '#a8643a' },
+  { id: 'extract', title: 'Extraer páginas', hint: 'Saca solo las que necesitas', icon: <FileOutput />, color: '#397265' },
+  { id: 'addpage', title: 'Añadir página', hint: 'En blanco o de otro PDF', icon: <FilePlus2 />, color: '#2f7a8f' },
+  { id: 'delpages', title: 'Eliminar páginas', hint: 'Quita las que sobran', icon: <FileMinus2 />, color: '#a04877' },
+  { id: 'organize', title: 'Ordenar páginas', hint: 'Mover, girar o borrar', icon: <LayoutGrid />, color: '#5a55a3', accept: '.pdf,.docx,.png,.jpg,.jpeg' },
   { id: 'folio', title: 'Foliar PDF', hint: 'Ascendente o en reverso', icon: <Hash />, color: '#9a7425' },
   { id: 'sign', title: 'Firmar PDF', hint: 'Dibuja y coloca tu firma', icon: <SignatureIcon />, color: '#5a55a3', accept: '.pdf,.png,.jpg,.jpeg' },
   { id: 'editpdf', title: 'Editar texto', hint: 'Corrige el texto de un PDF', icon: <FilePenLine />, color: '#a04877', accept: '.pdf' },
   { id: 'removebg', title: 'Quitar fondo', hint: 'De tus imágenes, en lote', icon: <RemoveBgIcon />, color: '#2f7a8f' },
-  { id: 'design', title: 'Diseñar', hint: 'Hoja en blanco, redes…', icon: <PageSizeIcon />, color: '#4a5568' },
+  { id: 'removeobj', title: 'Quitar objeto', hint: 'Borra algo de una foto', icon: <Eraser />, color: '#b0584a', accept: 'image/*' },
+  { id: 'size', title: 'Tamaño de hoja', hint: 'A4, Carta, redes sociales…', icon: <PageSizeIcon />, color: '#4a5568' },
+  { id: 'format', title: 'Formato', hint: 'Tipografía y márgenes', icon: <SlidersHorizontal />, color: '#4a5568' },
 ];
 
 /**
@@ -90,21 +96,21 @@ export function HomeScreen({ open, onClose, onPick, onTour, canInstall, onInstal
           </button>
         </header>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 px-3 sm:px-6 py-2 sm:py-3 min-h-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2.5 px-3 sm:px-6 py-2 sm:py-3 min-h-0">
           {CARDS.map((c) => (
             <button
               key={c.id}
               type="button"
               data-home-task={c.id}
               onClick={() => choose(c)}
-              className="group text-left rounded-xl border border-slate-700 bg-slate-900 hover:border-slate-500 hover:shadow-md transition flex sm:flex-col items-center sm:items-start gap-3 sm:gap-2 px-3 py-2.5 sm:p-4 sm:min-h-[132px]"
+              className="group text-left rounded-xl border border-slate-700 bg-slate-900 hover:border-slate-500 hover:shadow-md transition flex items-center gap-2.5 px-2.5 py-2 sm:px-3 sm:py-2.5"
             >
-              <span className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 sm:order-2 sm:mt-auto transition group-hover:scale-105" style={{ background: `${c.color}1f`, color: c.color }}>
-                <span className="[&>svg]:w-5 [&>svg]:h-5 sm:[&>svg]:w-6 sm:[&>svg]:h-6 flex">{c.icon}</span>
+              <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 transition group-hover:scale-105" style={{ background: `${c.color}1f`, color: c.color }}>
+                <span className="[&>svg]:w-[18px] [&>svg]:h-[18px] sm:[&>svg]:w-5 sm:[&>svg]:h-5 flex">{c.icon}</span>
               </span>
-              <span className="min-w-0 sm:order-1">
-                <span className="block text-[13px] sm:text-sm font-bold text-white leading-tight">{c.title}</span>
-                <span className="block text-[11px] text-slate-400 leading-snug mt-0.5">{c.hint}</span>
+              <span className="min-w-0">
+                <span className="block text-[12.5px] sm:text-[13px] font-bold text-white leading-tight">{c.title}</span>
+                <span className="block text-[10.5px] text-slate-400 leading-snug mt-0.5 [@media(max-height:760px)]:hidden">{c.hint}</span>
               </span>
             </button>
           ))}

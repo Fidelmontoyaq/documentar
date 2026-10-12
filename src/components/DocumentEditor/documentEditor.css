@@ -210,16 +210,20 @@ body.de-light {
 }
 /* Oscuro suave (gris carbón, como los programas actuales). «Marino» = el azul oscuro de antes (valores de :root). */
 body.de-dark {
-  --slate-50: 237 240 245; --slate-100: 224 228 235; --slate-200: 200 206 216; --slate-300: 168 175 188;
-  --slate-400: 135 143 158; --slate-500: 108 116 131; --slate-600: 78 85 98; --slate-700: 62 68 79;
-  --slate-800: 47 52 61; --slate-900: 36 40 47; --slate-950: 28 31 37;
+  /* Paleta tipo Discord: #1e1f22 · #2b2d31 · #313338 · #383a40 y texto #dbdee1 (el blanco puro no deslumbra). */
+  --slate-50: 242 243 245; --slate-100: 219 222 225; --slate-200: 181 186 193; --slate-300: 148 155 164;
+  --slate-400: 128 132 142; --slate-500: 107 111 120; --slate-600: 78 80 88; --slate-700: 64 66 73;
+  --slate-800: 56 58 64; --slate-900: 43 45 49; --slate-950: 30 31 34;
   color-scheme: dark;
 }
-body.de-dark .doc-editor ::-webkit-scrollbar-track { background: #24282f; }
-body.de-dark .doc-editor ::-webkit-scrollbar-thumb { background: #4e5562; }
-body.de-dark .element-toolbar .et-btn:hover { background: #3a404b; }
-body.de-dark .element-toolbar .et-sep { background: #4e5562; }
-body.de-dark .zoom-range { background: #4e5562; }
+body.de-dark .doc-editor ::-webkit-scrollbar-track { background: #2b2d31; }
+body.de-dark .doc-editor ::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 4px; }
+body.de-dark .element-toolbar .et-btn:hover { background: #404249; }
+body.de-dark .element-toolbar .et-sep { background: #4e5058; }
+body.de-dark .zoom-range { background: #4e5058; }
+body.de-dark #editorContainer { background: #313338; }
+body.de-dark .a4-page { box-shadow: 0 1px 3px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.28); }
+body.de-dark .doc-editor { background-color: #313338; }
 
 body.de-light .doc-editor ::-webkit-scrollbar-track { background: #eef2f7; }
 body.de-light .doc-editor ::-webkit-scrollbar-thumb { background: #c3cddb; }
@@ -263,3 +267,7 @@ body.de-light .bg-slate-950\/90, body.de-light .bg-slate-950\/70 { background-co
 body .doc-editor .a4-page .text-white { color: #fff; }
 .a4-page [contenteditable="true"]:focus { background-color: transparent; }
 .a4-page .page-content, .a4-page .page-header, .a4-page .page-footer { color: #000; }
+
+/* Texto curvo: el texto editable queda oculto (es la fuente) y se ven las letras colocadas en arco. */
+.floating-box[data-curve] .floating-box-content > [contenteditable] { visibility: hidden; }
+.floating-box .curve-layer span { user-select: none; }

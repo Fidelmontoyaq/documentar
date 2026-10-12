@@ -14,6 +14,11 @@ import {
   removeSpecks,
   shrinkEdge,
   wandRemove,
+  smartDot,
+  smartLine,
+  sampleColor,
+  inpaintObject,
+  type Rgb,
   type MaskImage,
 } from '../../engine/bgRemove';
 
@@ -23,6 +28,8 @@ interface Props {
   onClose: () => void;
   /** Recibe el PNG con el fondo transparente. */
   onApply: (dataUrl: string, w: number, h: number) => void;
+  /** 'bg' = quitar fondo (por defecto) · 'object' = quitar un objeto y rellenar el hueco. */
+  mode?: 'bg' | 'object';
 }
 
 type Tool = 'auto' | 'hard' | 'wand' | 'brush' | 'hand';
@@ -44,7 +51,9 @@ const BG_STYLE: Record<Bg, React.CSSProperties> = {
 };
 
 /** Ventana para quitar el fondo de una imagen (varita, fondo liso, pincel, IA) y dejarla lista como sticker. */
-export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
+export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Props) {
+  const isObj = mode === 'object';
+  const refColor = useRef<Rgb | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -66,6 +75,8 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
   const [brushMode, setBrushMode] = useState<'erase' | 'restore'>('erase');
   const [brushSize, setBrushSize] = useState(28);
   const [soft, setSoft] = useState(40);
+  const [smart, setSmart] = useState(true);
+  const [smartTol, setSmartTol] = useState(32);
   const [zoom, setZoom] = useState(1);
   const [, setTick] = useState(0);
   const [ai, setAi] = useState<{ text: string; pct?: number } | null>(null);
@@ -80,7 +91,8 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     setLoadErr(null);
     setMsg(null);
     setZoom(1);
-    setTool('auto');
+    setTool(isObj ? 'brush' : 'auto');
+    setBrushMode('erase');
     undoRef.current = [];
     redoRef.current = [];
     const img = new Image();
@@ -104,7 +116,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, src]);
+  }, [open, src, isObj]);
 
   const render = useCallback(() => {
     const mi = miRef.current;
@@ -116,8 +128,21 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
       cv.height = mi.h;
     }
     composeRgba(mi, id.data);
+    if (isObj) {
+      // Lo marcado se ve en rojo sobre la foto (así se sabe qué se va a quitar).
+      const d = id.data;
+      for (let i = 0, n = mi.w * mi.h; i < n; i++) {
+        const k = (1 - mi.mask[i] / 255) * 0.6;
+        d[i * 4 + 3] = mi.origAlpha[i];
+        if (k > 0) {
+          d[i * 4] = d[i * 4] * (1 - k) + 244 * k;
+          d[i * 4 + 1] = d[i * 4 + 1] * (1 - k) + 63 * k;
+          d[i * 4 + 2] = d[i * 4 + 2] * (1 - k) + 94 * k;
+        }
+      }
+    }
     cv.getContext('2d')!.putImageData(id, 0, 0);
-  }, []);
+  }, [isObj]);
 
   useEffect(() => {
     if (ready) render();
@@ -209,7 +234,10 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     pushUndo();
     strokeRef.current = { x: p.x, y: p.y };
-    paintDot(mi, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode);
+    if (smart) {
+      refColor.current = sampleColor(mi, p.x, p.y);
+      smartDot(mi, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode, refColor.current, smartTol);
+    } else paintDot(mi, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode);
     render();
     moveCursor(e);
   };
@@ -219,7 +247,8 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     const s = strokeRef.current;
     if (!mi || !s || tool !== 'brush') return;
     const p = toImg(e);
-    paintLine(mi, s.x, s.y, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode);
+    if (smart && refColor.current) smartLine(mi, s.x, s.y, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode, refColor.current, smartTol);
+    else paintLine(mi, s.x, s.y, p.x, p.y, brushRadiusImg(p.k), soft / 100, brushMode);
     strokeRef.current = { x: p.x, y: p.y };
     render();
   };
@@ -248,6 +277,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     const before = new Uint8ClampedArray(mi.mask);
     try {
       await aiRemoveBackground(mi, (text, pct) => setAi({ text, pct }), kind);
+      if (isObj) for (let i = 0; i < mi.mask.length; i++) mi.mask[i] = Math.round(mi.origAlpha[i] * (1 - mi.mask[i] / 255));
       if (refine) refineFineEdges(mi, 6);
       // pushUndo con el estado previo (la máscara ya cambió).
       undoRef.current.push(before);
@@ -276,6 +306,14 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
     const mi = miRef.current;
     const cv = canvasRef.current;
     if (!mi || !cv) return;
+    if (isObj) {
+      const out = new ImageData(new Uint8ClampedArray(inpaintObject(mi)), mi.w, mi.h);
+      const c = document.createElement('canvas');
+      c.width = mi.w; c.height = mi.h;
+      c.getContext('2d')!.putImageData(out, 0, 0);
+      onApply(c.toDataURL('image/png'), mi.w, mi.h);
+      return;
+    }
     render();
     onApply(cv.toDataURL('image/png'), mi.w, mi.h);
   };
@@ -323,7 +361,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
       {/* Lienzo de trabajo */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-800 bg-slate-900">
-          <h2 className="text-sm font-bold text-white mr-auto">Quitar fondo</h2>
+          <h2 className="text-sm font-bold text-white mr-auto">{isObj ? 'Quitar objeto' : 'Quitar fondo'}</h2>
           <button type="button" className={iconBtn} title="Deshacer (Ctrl+Z)" disabled={!canUndo} onClick={undo}><Undo2 className="w-4 h-4" /></button>
           <button type="button" className={iconBtn} title="Rehacer" disabled={!canRedo} onClick={redo}><Redo2 className="w-4 h-4" /></button>
           <button type="button" className={iconBtn} title="Volver a la imagen original" onClick={reset}><RotateCcw className="w-4 h-4" /></button>
@@ -370,14 +408,24 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
         </div>
         <div className="p-3 space-y-3 overflow-y-auto flex-1 min-h-0">
           <div className="flex gap-1.5">
-            {tabBtn('auto', 'Automático', <Sparkles className="w-4 h-4" />)}
-            {tabBtn('hard', 'Difíciles', <ScanFace className="w-4 h-4" />)}
+            {isObj ? tabBtn('brush', 'Marcar', <Brush className="w-4 h-4" />) : tabBtn('auto', 'Automático', <Sparkles className="w-4 h-4" />)}
+            {!isObj && tabBtn('hard', 'Difíciles', <ScanFace className="w-4 h-4" />)}
             {tabBtn('wand', 'Varita', <Wand2 className="w-4 h-4" />)}
-            {tabBtn('brush', 'Pincel', <Brush className="w-4 h-4" />)}
+            {!isObj && tabBtn('brush', 'Pincel', <Brush className="w-4 h-4" />)}
+            {isObj && tabBtn('auto', 'Detectar', <Sparkles className="w-4 h-4" />)}
             {tabBtn('hand', 'Mover', <Hand className="w-4 h-4" />)}
           </div>
 
-          {tool === 'auto' && (
+          {tool === 'auto' && isObj && (
+            <div className="space-y-2.5">
+              <p className="text-[11px] text-slate-400">La IA marca el objeto principal de la foto para quitarlo. Puedes corregir la marca con el pincel.</p>
+              <button type="button" disabled={!ready || !!ai} onClick={() => void runAi('general')} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+                {ai ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Detectar objeto con IA
+              </button>
+              {ai && <div className="text-[11px] text-slate-300">{ai.text}{typeof ai.pct === 'number' && <div className="h-1.5 mt-1 rounded bg-slate-700 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${Math.round(ai.pct)}%` }} /></div>}</div>}
+            </div>
+          )}
+          {tool === 'auto' && !isObj && (
             <div className="space-y-2.5">
               <button type="button" disabled={!ready || !!ai} onClick={() => void runAi('general')} className="w-full py-2.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
                 {ai ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -451,8 +499,20 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
           {tool === 'brush' && (
             <div className="space-y-2.5">
               <div className="flex gap-1.5">
-                <button type="button" onClick={() => setBrushMode('erase')} className={`flex-1 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${brushMode === 'erase' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><Eraser className="w-3.5 h-3.5" />Borrar</button>
-                <button type="button" onClick={() => setBrushMode('restore')} className={`flex-1 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${brushMode === 'restore' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><Brush className="w-3.5 h-3.5" />Restaurar</button>
+                <button type="button" onClick={() => setBrushMode('erase')} className={`flex-1 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${brushMode === 'erase' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><Eraser className="w-3.5 h-3.5" />{isObj ? 'Marcar' : 'Borrar'}</button>
+                <button type="button" onClick={() => setBrushMode('restore')} className={`flex-1 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 ${brushMode === 'restore' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><Brush className="w-3.5 h-3.5" />{isObj ? 'Desmarcar' : 'Restaurar'}</button>
+              </div>
+              <div className={`rounded-xl border p-2.5 space-y-2 ${smart ? 'border-blue-500 bg-blue-600/10' : 'border-slate-700'}`}>
+                <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer font-medium">
+                  <input type="checkbox" checked={smart} onChange={(e) => setSmart(e.target.checked)} /> Pincel inteligente (respeta bordes)
+                </label>
+                <p className="text-[10px] text-slate-400">{smart ? 'Solo afecta al color donde empiezas el trazo: al llegar a otro color, se detiene solo. Puedes pasar el pincel por encima del borde sin miedo.' : 'Pinta todo lo que toca el círculo.'}</p>
+                {smart && (
+                  <div>
+                    <div className={lbl}><span>Sensibilidad al color</span><span>{smartTol}</span></div>
+                    <input type="range" min={5} max={80} value={smartTol} onChange={(e) => setSmartTol(Number(e.target.value))} className="w-full" />
+                  </div>
+                )}
               </div>
               <div>
                 <div className={lbl}><span>Tamaño</span><span>{brushSize}px</span></div>
@@ -468,20 +528,20 @@ export function RemoveBgDialog({ open, src, onClose, onApply }: Props) {
 
           {tool === 'hand' && <p className="text-[11px] text-slate-400">Con la imagen ampliada, arrastra para moverte por ella.</p>}
 
-          <div className="border-t border-slate-800 pt-2.5 space-y-1.5">
+          {!isObj && (<div className="border-t border-slate-800 pt-2.5 space-y-1.5">
             <div className="text-[11px] font-semibold text-slate-400">Pulir el borde</div>
             <div className="grid grid-cols-3 gap-1.5">
               <button type="button" disabled={!ready} onClick={() => edge((m) => shrinkEdge(m, 1))} className={act} title="Se come 1 px del contorno: quita halos de color del fondo">Afinar</button>
               <button type="button" disabled={!ready} onClick={() => edge((m) => featherEdge(m, 1.5))} className={act} title="Suaviza el contorno dentado">Suavizar</button>
               <button type="button" disabled={!ready} onClick={() => edge((m) => { const n = removeSpecks(m, Math.max(12, Math.round((m.w * m.h) / 4000))); setMsg(n ? `Se quitaron ${n} píxeles sueltos.` : 'No había motas sueltas.'); })} className={act} title="Quita puntos sueltos">Motas</button>
             </div>
-          </div>
+          </div>)}
 
           {msg && <p className="text-[11px] text-amber-300">{msg}</p>}
         </div>
         <div className="p-3 border-t border-slate-800 flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Cancelar</button>
-          <button type="button" disabled={!ready || !!ai} onClick={apply} className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">Aplicar</button>
+          <button type="button" disabled={!ready || !!ai} onClick={apply} className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">{isObj ? 'Quitar objeto' : 'Aplicar'}</button>
         </div>
       </aside>
     </div>

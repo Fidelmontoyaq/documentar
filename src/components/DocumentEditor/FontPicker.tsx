@@ -72,12 +72,12 @@ export function FontPicker({ value, recentFonts, onChange, placeholder = 'Fuente
     ensurePreviewCss();
     const r = btnRef.current?.getBoundingClientRect();
     if (r) {
-      const width = 300;
+      const width = 360;
       const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
       const below = window.innerHeight - r.bottom - 12;
       const above = r.top - 12;
       const useAbove = below < 320 && above > below;
-      const maxH = Math.max(260, Math.min(520, useAbove ? above : below));
+      const maxH = Math.max(260, Math.min(720, useAbove ? above : below));
       setPos({ left, top: useAbove ? Math.max(8, r.top - maxH - 6) : r.bottom + 6, maxH });
     }
     setOpen(true);
@@ -187,7 +187,7 @@ export function FontPicker({ value, recentFonts, onChange, placeholder = 'Fuente
       className={
         isMobile
           ? 'fixed inset-x-0 bottom-0 z-[95] bg-slate-900 border-t border-slate-700 rounded-t-2xl shadow-2xl flex flex-col max-h-[78dvh]'
-          : 'fixed z-[95] w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col'
+          : 'fixed z-[95] w-[360px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col'
       }
       style={!isMobile && pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxH } : undefined}
     >

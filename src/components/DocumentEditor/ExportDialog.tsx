@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, FileDown, Image as ImageIcon, FileType, Share2 } from 'lucide-react';
+import { X, FileDown, Image as ImageIcon, FileType, Share2, MessageCircle } from 'lucide-react';
 import type { ExportOptions, PageInfo } from '../../types/documentEditor';
 
 interface ExportDialogProps {
@@ -32,7 +32,7 @@ export function ExportDialog({ open, onClose, onExport, pageCount, info }: Expor
       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 shadow-2xl w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-white font-bold text-base">Descargar o compartir</h2>
+          <h2 className="text-white font-bold text-base">Compartir</h2>
           <button type="button" onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"><X className="w-4 h-4" /></button>
         </div>
 
@@ -75,28 +75,34 @@ export function ExportDialog({ open, onClose, onExport, pageCount, info }: Expor
           </p>
         )}
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              onExport({ format, scope, scale: format === 'pdf' ? 2 : scale });
-              onClose();
-            }}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition"
-          >
-            <FileDown className="w-4 h-4" /> Descargar {format.toUpperCase()}
-          </button>
-          <button
-            type="button"
-            title="WhatsApp, correo u otras apps"
-            onClick={() => {
-              onExport({ format, scope, scale: format === 'pdf' ? 2 : scale, share: true });
-              onClose();
-            }}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-600 text-slate-100 hover:border-slate-400 transition"
-          >
-            <Share2 className="w-4 h-4" /> Compartir
-          </button>
+        <button
+          type="button"
+          onClick={() => { onExport({ format, scope, scale: format === 'pdf' ? 2 : scale }); onClose(); }}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition"
+          style={{ color: '#fff' }}
+        >
+          <FileDown className="w-4 h-4" /> Descargar {format.toUpperCase()}
+        </button>
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">O enviar por</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              title="Se abre WhatsApp con tu archivo; en el celular eliges ahí el contacto"
+              onClick={() => { onExport({ format, scope, scale: format === 'pdf' ? 2 : scale, share: 'whatsapp' }); onClose(); }}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border border-slate-600 text-slate-100 hover:border-slate-400 transition"
+            >
+              <span className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#25a05a', color: '#fff' }}><MessageCircle className="w-3.5 h-3.5" /></span> WhatsApp
+            </button>
+            <button
+              type="button"
+              title="Correo, Drive, Telegram y otras apps"
+              onClick={() => { onExport({ format, scope, scale: format === 'pdf' ? 2 : scale, share: true }); onClose(); }}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border border-slate-600 text-slate-100 hover:border-slate-400 transition"
+            >
+              <Share2 className="w-4 h-4" /> Otras apps
+            </button>
+          </div>
         </div>
       </div>
     </div></div>,

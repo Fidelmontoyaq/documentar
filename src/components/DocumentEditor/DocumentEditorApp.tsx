@@ -15,9 +15,13 @@ import { ExportDialog } from './ExportDialog';
 import { RemoveBgDialog } from './RemoveBgDialog';
 import { BatchBgModal } from './BatchBgModal';
 import { HomeScreen, type HomeTask } from './HomeScreen';
-import { MergeTask, SplitTask } from './PdfTasks';
-import type { AfterAction } from './TaskKit';
+import { MergeTask, SplitTask, PagesTask } from './PdfTasks';
+import { TaskShell, NextSteps, type AfterAction } from './TaskKit';
+import { downloadBlob } from '../../engine/pdfTools';
 import { TopBar } from './TopBar';
+import { ShortcutsModal } from './ShortcutsModal';
+import { clearDoc, loadDoc, requestPersistence, saveDoc } from '../../engine/persist';
+import { loadFolioConfig } from '../../engine/folio';
 import { ThumbnailPanel, ViewSwitcher, PresentationView, type ViewMode } from './PageViews';
 import { InstallHelp } from './InstallHelp';
 import { GuidedTour, tourDisabled } from './GuidedTour';
@@ -70,6 +74,12 @@ export function DocumentEditorApp() {
   const [presenting, setPresenting] = useState(false);
   const [pagesSheet, setPagesSheet] = useState(false);
   const [bgBatchOpen, setBgBatchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [pagesKind, setPagesKind] = useState<'cut' | 'extract' | 'delete' | 'add' | null>(null);
+  const [objFile, setObjFile] = useState<File | null>(null);
+  const [objSrc, setObjSrc] = useState<string | null>(null);
+  const [objDone, setObjDone] = useState<File | null>(null);
+  const [bgMode, setBgMode] = useState<'bg' | 'object'>('bg');
   const [mergeOpen, setMergeOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [folioStart, setFolioStart] = useState<'doc' | 'batch'>('doc');
@@ -111,6 +121,64 @@ export function DocumentEditorApp() {
 
   const requestExport = () => setExportOpen(true);
 
+  /** «Quitar fondo» de la barra: con una imagen seleccionada la abre; si no, abre el modo por lotes. */
+  const openRemoveBg = () => {
+    const target = engine?.getEditableImage();
+    if (target) { setBgMode('bg'); setBgEdit(target); }
+    else setBgBatchOpen(true);
+  };
+
+  // ---- Autoguardado en IndexedDB: recargar la página no borra el trabajo ----
+  const restoredRef = useRef(false);
+  const [restoreNote, setRestoreNote] = useState(false);
+  useEffect(() => {
+    if (!engine || restoredRef.current) return;
+    restoredRef.current = true;
+    requestPersistence();
+    void (async () => {
+      const doc = await loadDoc();
+      if (doc && doc.html && engine.isBlankDocument()) {
+        engine.loadSnapshot(doc.html, doc.font);
+        if (doc.folio && (doc.folio as { enabled?: boolean }).enabled) engine.setFolioConfig({ ...loadFolioConfig(), ...(doc.folio as object) } as ReturnType<typeof loadFolioConfig>);
+        setRestoreNote(true);
+      }
+      restoredRef.current = true;
+      setReadyToSave(true);
+    })();
+  }, [engine]);
+  const [readyToSave, setReadyToSave] = useState(false);
+  const skipSave = useRef(false);
+  const saveNow = () => {
+    if (!engine || !readyToSave || skipSave.current) return;
+    const snap = engine.exportSnapshot();
+    void saveDoc({ html: snap.html, font: snap.font, folio: engine.getFolioConfig() as unknown as Record<string, unknown>, savedAt: Date.now(), pages: snap.pages });
+  };
+  useEffect(() => {
+    if (!readyToSave) return;
+    const t = setTimeout(saveNow, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentVersion, readyToSave]);
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') saveNow(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', saveNow);
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', saveNow); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, readyToSave]);
+
+  // ---- Atajos generales ----
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      const typing = !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); setExportOpen(true); }
+      else if (e.key === '?' && !typing) { e.preventDefault(); setShortcutsOpen(true); }
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, []);
+
   /** Importa archivos al lienzo; solo los PDF activan «Editar PDF» si se pide. */
   const importFiles = async (files: File[], mode: ImagesPerPageMode, opts: { pdfEdit?: boolean } = { pdfEdit: true }) => {
     await engine?.handleFileSelect(files, mode);
@@ -122,7 +190,7 @@ export function DocumentEditorApp() {
     }
   };
 
-  const closeTasks = () => { setMergeOpen(false); setSplitOpen(false); setBgBatchOpen(false); setFolioOpen(false); };
+  const closeTasks = () => { setPagesKind(null); setMergeOpen(false); setSplitOpen(false); setBgBatchOpen(false); setFolioOpen(false); };
 
   /** Tarjetas de la pantalla de inicio: cada una lleva directo a su tarea. */
   const onHomePick = async (task: HomeTask, files?: File[]) => {
@@ -131,9 +199,15 @@ export function DocumentEditorApp() {
     switch (task) {
       case 'merge': setMergeOpen(true); break;
       case 'split': setSplitOpen(true); break;
+      case 'cut': setPagesKind('cut'); break;
+      case 'extract': setPagesKind('extract'); break;
+      case 'delpages': setPagesKind('delete'); break;
+      case 'addpage': setPagesKind('add'); break;
+      case 'size': setCanvasOpen(true); break;
+      case 'format': setPanel('format'); break;
+      case 'removeobj': if (files?.[0]) setObjFile(files[0]); break;
       case 'folio': setFolioStart('batch'); setFolioOpen(true); break;
       case 'removebg': setBgBatchOpen(true); break;
-      case 'design': setCanvasOpen(true); break;
       case 'organize':
         if (files?.length) { await importFiles(files, '1', { pdfEdit: false }); setOrganizerOpen(true); }
         break;
@@ -159,6 +233,13 @@ export function DocumentEditorApp() {
     else if (action === 'folio') { setFolioStart('doc'); setFolioOpen(true); }
     else if (action === 'organize') setOrganizerOpen(true);
   };
+
+  useEffect(() => {
+    if (!objFile) return;
+    const fr = new FileReader();
+    fr.onload = () => setObjSrc(String(fr.result));
+    fr.readAsDataURL(objFile);
+  }, [objFile]);
 
   useEffect(() => {
     if (!notice) return;
@@ -237,8 +318,9 @@ export function DocumentEditorApp() {
         onFormat={() => setPanel((cur) => (cur === 'format' ? null : 'format'))}
         onFolio={() => { setFolioStart('doc'); setFolioOpen(true); }}
         onOrganize={() => setOrganizerOpen(true)}
-        onDownload={requestExport}
-        onShare={() => void engine?.exportDocument({ format: 'pdf', scope: 'all', scale: 2, share: true })}
+        onRemoveBg={openRemoveBg}
+        onShortcuts={() => setShortcutsOpen(true)}
+        onShare={requestExport}
         folioActive={folioActive}
         formatActive={panel === 'format'}
       />
@@ -325,7 +407,13 @@ export function DocumentEditorApp() {
             onSticker={(o) => void engine?.setStickerBorder(o)}
             onRemoveBg={() => {
               const target = engine?.getEditableImage();
-              if (target) setBgEdit(target);
+              if (target) { setBgMode('bg'); setBgEdit(target); }
+            }}
+            getCurve={() => engine?.getCurveState() ?? null}
+            onCurve={(cfg, text) => engine?.setCurve(cfg, text)}
+            onRemoveObj={() => {
+              const target = engine?.getEditableImage();
+              if (target) { setBgMode('object'); setBgEdit(target); }
             }}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
@@ -415,12 +503,35 @@ export function DocumentEditorApp() {
       <RemoveBgDialog
         open={!!bgEdit}
         src={bgEdit?.src ?? null}
+        mode={bgMode}
         onClose={() => setBgEdit(null)}
         onApply={(dataUrl, w, h) => {
           if (bgEdit) { engine?.applyEditedImage(bgEdit.id, dataUrl, w, h); }
           setBgEdit(null);
         }}
       />
+
+      {/* Quitar objeto desde el inicio: foto → marcar → descargar */}
+      <RemoveBgDialog
+        open={!!objSrc}
+        src={objSrc}
+        mode="object"
+        onClose={() => { setObjSrc(null); setObjFile(null); }}
+        onApply={(dataUrl) => {
+          void fetch(dataUrl).then((r) => r.blob()).then((blob) => {
+            const base = (objFile?.name ?? 'imagen').replace(/\.[^.]+$/, '');
+            const f = new File([blob], `${base}-sin-objeto.png`, { type: 'image/png' });
+            downloadBlob(blob, f.name);
+            setObjSrc(null);
+            setObjDone(f);
+          });
+        }}
+      />
+      {objDone && (
+        <TaskShell title="Quitar objeto" icon={<span className="text-sm">✓</span>} onClose={() => { setObjDone(null); setObjFile(null); }}>
+          <NextSteps files={[objDone]} imagesOnly onAfter={(a, f) => { setObjDone(null); setObjFile(null); void onAfter(a, f); }} />
+        </TaskShell>
+      )}
 
       <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} activeIndex={activeIndex} />
       <ExportDialog
@@ -452,12 +563,22 @@ export function DocumentEditorApp() {
       <PresentationView engine={engine} open={presenting} startIndex={activeIndex} onClose={() => setPresenting(false)} />
       <HomeScreen open={homeOpen} onClose={closeHome} onPick={(t, f) => void onHomePick(t, f)} onTour={() => { setHomeOpen(false); setTourOpen(true); }} canInstall={install.canInstall} onInstall={() => void install.install()} />
       {mergeOpen && <MergeTask onClose={() => setMergeOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
+      {pagesKind && <PagesTask kind={pagesKind} onClose={() => setPagesKind(null)} onAfter={(a, f) => void onAfter(a, f)} />}
       {splitOpen && <SplitTask onClose={() => setSplitOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
       <BatchBgModal open={bgBatchOpen} onClose={() => setBgBatchOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} engine={engine} onOpenCanvas={() => setCanvasOpen(true)} />
       <InstallHelp kind={install.help} onClose={install.closeHelp} />
 
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
+
+      {restoreNote && (
+        <div data-keep-selection className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[61] flex items-center gap-3 bg-slate-900 border border-slate-700 text-slate-100 text-sm pl-4 pr-2 py-2 rounded-xl shadow-2xl print:hidden">
+          <span>Recuperamos tu trabajo anterior.</span>
+          <button type="button" onClick={() => { skipSave.current = true; void clearDoc().then(() => window.location.reload()); }} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 hover:border-slate-400">Empezar de cero</button>
+          <button type="button" onClick={() => setRestoreNote(false)} className="text-xs px-2 py-1.5 text-slate-400">OK</button>
+        </div>
+      )}
+      <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       {notice && (
         <div
