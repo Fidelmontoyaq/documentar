@@ -16,16 +16,16 @@ const G = (category: FontCategory, names: string): [string, FontCategory][] =>
   names.split('|').map((n) => [n.trim(), category]);
 
 const GOOGLE: [string, FontCategory][] = [
-  ...G('sans', 'Inter|Roboto|Open Sans|Montserrat|Poppins|Lato|Nunito|Nunito Sans|Raleway|Work Sans|DM Sans|Manrope|Outfit|Rubik|Karla|Mulish|Quicksand|Source Sans 3|Noto Sans|Fira Sans|Barlow|Josefin Sans|Cabin|Oswald|Archivo|Figtree|Plus Jakarta Sans|Lexend|Albert Sans|Urbanist|Sora|Jost|Heebo|Hind|Titillium Web|Ubuntu|Arimo|Public Sans|Be Vietnam Pro|Asap|Exo 2|Maven Pro|Varela Round|Questrial|Kanit|Prompt|Bebas Neue|Anton'),
-  ...G('serif', 'Playfair Display|Merriweather|Lora|PT Serif|Crimson Text|EB Garamond|Libre Baskerville|Cormorant Garamond|Cormorant|Source Serif 4|Noto Serif|Bitter|Cinzel|Old Standard TT|Tinos|Vollkorn|Spectral|Libre Caslon Text|Domine|Roboto Slab|Zilla Slab|Arvo|Cardo|Gelasio|DM Serif Display|DM Serif Text|Abril Fatface|Alegreya|Frank Ruhl Libre|Bodoni Moda|Marcellus|Rozha One|Yeseva One|Playfair Display SC'),
+  ...G('sans', 'Inter|Roboto|Open Sans|Montserrat|Poppins|Lato|Nunito|Nunito Sans|Raleway|Work Sans|DM Sans|Manrope|Outfit|Rubik|Karla|Mulish|Quicksand|Source Sans 3|Noto Sans|Fira Sans|Barlow|Josefin Sans|Cabin|Oswald|Archivo|Figtree|Plus Jakarta Sans|Lexend|Albert Sans|Urbanist|Sora|Jost|Heebo|Hind|Titillium Web|Ubuntu|Arimo|Public Sans|Be Vietnam Pro|Asap|Exo 2|Maven Pro|Varela Round|Questrial|Kanit|Prompt|Bebas Neue|Anton|Carlito|Libre Franklin|PT Sans|PT Sans Narrow|Roboto Condensed|Merriweather Sans|Comic Neue|Overpass|IBM Plex Sans|Noto Sans Display|Catamaran|Signika|Lexend Deca|Red Hat Display|Space Grotesk|Questrial|Didact Gothic|Gothic A1'),
+  ...G('serif', 'Playfair Display|Merriweather|Lora|PT Serif|Crimson Text|EB Garamond|Libre Baskerville|Cormorant Garamond|Cormorant|Source Serif 4|Noto Serif|Bitter|Cinzel|Old Standard TT|Tinos|Vollkorn|Spectral|Libre Caslon Text|Domine|Roboto Slab|Zilla Slab|Arvo|Cardo|Gelasio|DM Serif Display|DM Serif Text|Abril Fatface|Alegreya|Frank Ruhl Libre|Bodoni Moda|Marcellus|Rozha One|Yeseva One|Playfair Display SC|Caladea|Libre Bodoni|IBM Plex Serif|Rokkitt|Crete Round|Slabo 27px|Neuton|Prata|Lusitana'),
   ...G('display', 'Lobster|Bangers|Righteous|Fredoka|Baloo 2|Chewy|Luckiest Guy|Permanent Marker|Press Start 2P|Monoton|Pacifico|Alfa Slab One|Black Ops One|Bungee|Russo One|Staatliches|Archivo Black|Passion One|Shrikhand|Fugaz One|Orbitron|Audiowide|Cinzel Decorative|Special Elite|Unbounded|Rubik Mono One|Titan One|Fascinate|Gloock'),
   ...G('script', 'Dancing Script|Great Vibes|Satisfy|Sacramento|Caveat|Kaushan Script|Allura|Parisienne|Courgette|Alex Brush|Tangerine|Yellowtail|Cookie|Marck Script|Amatic SC|Shadows Into Light|Indie Flower|Homemade Apple|Reenie Beanie|Rock Salt|Mr Dafoe|Pinyon Script|Italianno|Petit Formal Script|Playball|Merienda|Handlee|Patrick Hand|Gloria Hallelujah|La Belle Aurore|Nothing You Could Do|Zeyada|Over the Rainbow'),
-  ...G('mono', 'Courier Prime|JetBrains Mono|Fira Code|Source Code Pro|IBM Plex Mono|Space Mono|Roboto Mono|Inconsolata|Ubuntu Mono|DM Mono'),
+  ...G('mono', 'Courier Prime|JetBrains Mono|Fira Code|Source Code Pro|IBM Plex Mono|Space Mono|Roboto Mono|Inconsolata|Ubuntu Mono|DM Mono|Cousine|Noto Sans Mono|Anonymous Pro|PT Mono'),
 ];
 
 const SYSTEM: [string, string, FontCategory][] = [
   ['Times New Roman', "'Times New Roman', 'Tinos', Times, serif", 'serif'],
-  ['Cambria', 'Cambria, Georgia, serif', 'serif'],
+  ['Cambria', "Cambria, 'Caladea', Georgia, serif", 'serif'],
   ['Georgia', "Georgia, 'PT Serif', serif", 'serif'],
   ['Book Antiqua / Palatino', "'Book Antiqua', 'Palatino Linotype', Palatino, serif", 'serif'],
   ['Garamond', "Garamond, 'EB Garamond', serif", 'serif'],
@@ -34,7 +34,24 @@ const SYSTEM: [string, string, FontCategory][] = [
   ['Bookman Old Style', "'Bookman Old Style', 'Libre Baskerville', serif", 'serif'],
   ['Calibri', "Calibri, 'Carlito', Candara, sans-serif", 'sans'],
   ['Arial', "Arial, 'Arimo', Helvetica, sans-serif", 'sans'],
-  ['Courier New', "'Courier New', 'Courier Prime', Courier, monospace", 'mono'],
+  ['Courier New', "'Courier New', 'Cousine', Courier, monospace", 'mono'],
+  ['Helvetica', "Helvetica, 'Arimo', Arial, sans-serif", 'sans'],
+  ['Verdana', "Verdana, 'Open Sans', Geneva, sans-serif", 'sans'],
+  ['Tahoma', "Tahoma, 'Noto Sans', Geneva, sans-serif", 'sans'],
+  ['Trebuchet MS', "'Trebuchet MS', 'Fira Sans', sans-serif", 'sans'],
+  ['Segoe UI', "'Segoe UI', 'Open Sans', sans-serif", 'sans'],
+  ['Century Gothic', "'Century Gothic', 'Questrial', sans-serif", 'sans'],
+  ['Franklin Gothic', "'Franklin Gothic Medium', 'Libre Franklin', sans-serif", 'sans'],
+  ['Gill Sans', "'Gill Sans', 'Lato', sans-serif", 'sans'],
+  ['Futura', "Futura, 'Jost', sans-serif", 'sans'],
+  ['Candara / Corbel', "Candara, Corbel, 'Nunito Sans', sans-serif", 'sans'],
+  ['Aptos', "Aptos, 'Inter', sans-serif", 'sans'],
+  ['Palatino', "'Palatino Linotype', Palatino, 'EB Garamond', serif", 'serif'],
+  ['Rockwell', "Rockwell, 'Zilla Slab', serif", 'serif'],
+  ['Consolas', "Consolas, 'Inconsolata', monospace", 'mono'],
+  ['Lucida Console', "'Lucida Console', 'Cousine', monospace", 'mono'],
+  ['Comic Sans MS', "'Comic Sans MS', 'Comic Neue', cursive", 'display'],
+  ['Impact', "Impact, 'Anton', sans-serif", 'display'],
 ];
 
 const fallbackFor = (c: FontCategory) =>
@@ -106,7 +123,8 @@ export function familyOf(value: string): string {
 }
 
 export function ensureValueLoaded(value: string) {
-  ensureFontLoaded(familyOf(value));
+  // También carga las sustitutas de Google de las fuentes de sistema (Arial→Arimo, Calibri→Carlito…).
+  value.split(',').map((x) => x.replace(/['"]/g, '').trim()).forEach(ensureFontLoaded);
 }
 
 let previewDone = false;

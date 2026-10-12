@@ -524,3 +524,166 @@ export async function removeBgFromFile(
     URL.revokeObjectURL(url);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pincel inteligente: respeta los cambios de color entre el fondo y el objeto.
+// ---------------------------------------------------------------------------
+
+/** Promedio de color (3×3 alrededor del punto) usado como referencia del trazo. */
+export function sampleColor(m: MaskImage, cx: number, cy: number): Rgb {
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = Math.round(cx) + dx, y = Math.round(cy) + dy;
+      if (x < 0 || y < 0 || x >= m.w || y >= m.h) continue;
+      const i = (y * m.w + x) * 4;
+      r += m.rgba[i]; g += m.rgba[i + 1]; b += m.rgba[i + 2]; n++;
+    }
+  }
+  n = n || 1;
+  return { r: r / n, g: g / n, b: b / n };
+}
+
+/**
+ * Punto de pincel que solo afecta a los píxeles parecidos al color de referencia
+ * (el del inicio del trazo) y conectados con el centro: al llegar a un borde con
+ * otro color, el pincel se detiene solo. `tol` 1–100.
+ */
+export function smartDot(m: MaskImage, cx: number, cy: number, radius: number, hardness: number, mode: 'erase' | 'restore', ref: Rgb, tol: number) {
+  const { w, h } = m;
+  const r = Math.max(1, radius);
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const t = (Math.max(1, tol) / 100) * MAX_DIST;
+  const t2 = t * t;
+  const ok = new Uint8Array(bw * bh);
+  const seen = new Uint8Array(bw * bh);
+  const dist2 = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    const dr = m.rgba[i] - ref.r, dg = m.rgba[i + 1] - ref.g, db = m.rgba[i + 2] - ref.b;
+    return dr * dr + dg * dg + db * db;
+  };
+  // Relleno por inundación desde el centro, solo dentro del disco y del color de referencia.
+  const sx = Math.min(x1, Math.max(x0, Math.round(cx))), sy = Math.min(y1, Math.max(y0, Math.round(cy)));
+  const stack: number[] = [];
+  // Si el centro no se parece a la referencia (trazo que cruza un borde), se busca la semilla más cercana válida.
+  let seeded = false;
+  for (let rad = 0; rad <= 3 && !seeded; rad++) {
+    for (let dy = -rad; dy <= rad && !seeded; dy++) for (let dx = -rad; dx <= rad && !seeded; dx++) {
+      const x = sx + dx, y = sy + dy;
+      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+      if (dist2(x, y) <= t2) { stack.push((y - y0) * bw + (x - x0)); seen[(y - y0) * bw + (x - x0)] = 1; seeded = true; }
+    }
+  }
+  while (stack.length) {
+    const p = stack.pop()!;
+    const px = p % bw, py = (p / bw) | 0;
+    const x = px + x0, y = py + y0;
+    if (Math.hypot(x - cx, y - cy) > r) continue;
+    ok[p] = 1;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = px + dx, ny = py + dy;
+      if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+      const q = ny * bw + nx;
+      if (seen[q]) continue;
+      seen[q] = 1;
+      if (dist2(nx + x0, ny + y0) <= t2) stack.push(q);
+    }
+  }
+  const inner = r * Math.max(0, Math.min(0.99, hardness));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (!ok[(y - y0) * bw + (x - x0)]) continue;
+      const d = Math.hypot(x - cx, y - cy);
+      const s = d <= inner ? 1 : 1 - (d - inner) / (r - inner || 1);
+      if (s <= 0) continue;
+      const i = y * w + x;
+      if (mode === 'erase') m.mask[i] = Math.min(m.mask[i], Math.round(m.mask[i] * (1 - s)));
+      else m.mask[i] = Math.max(m.mask[i], Math.round(m.origAlpha[i] * s));
+    }
+  }
+}
+
+export function smartLine(m: MaskImage, x0: number, y0: number, x1: number, y1: number, radius: number, hardness: number, mode: 'erase' | 'restore', ref: Rgb, tol: number) {
+  const dist = Math.hypot(x1 - x0, y1 - y0);
+  const step = Math.max(1, radius / 3);
+  const n = Math.max(1, Math.ceil(dist / step));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n;
+    smartDot(m, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, radius, hardness, mode, ref, tol);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quitar objeto: se marca lo que sobra (máscara = 0) y se rellena con el entorno.
+// ---------------------------------------------------------------------------
+
+/**
+ * Rellena las zonas marcadas (mask < 128) con el color de alrededor: capa a capa desde
+ * el borde hacia dentro y luego un suavizado. Es un relleno sencillo (no inventa
+ * texturas): funciona bien en fondos lisos, cielos, paredes, césped, etc.
+ * Devuelve un RGBA nuevo con la opacidad original.
+ */
+export function inpaintObject(m: MaskImage, grow = 2): Uint8ClampedArray {
+  const { w, h } = m;
+  const n = w * h;
+  const out = new Uint8ClampedArray(m.rgba);
+  let hole = new Uint8Array(n);
+  let count = 0;
+  for (let i = 0; i < n; i++) if (m.mask[i] < 128 && m.origAlpha[i] > 0) { hole[i] = 1; count++; }
+  if (!count) return out;
+  // Agranda el hueco unos píxeles para no dejar halos del objeto.
+  for (let g = 0; g < grow; g++) {
+    const nh = new Uint8Array(hole);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (hole[i]) continue;
+      if ((x > 0 && hole[i - 1]) || (x < w - 1 && hole[i + 1]) || (y > 0 && hole[i - w]) || (y < h - 1 && hole[i + w])) nh[i] = 1;
+    }
+    hole = nh;
+  }
+  const holeIdx: number[] = [];
+  for (let i = 0; i < n; i++) if (hole[i]) holeIdx.push(i);
+  const known = new Uint8Array(n);
+  for (let i = 0; i < n; i++) known[i] = hole[i] ? 0 : 1;
+  // 1) Capas desde el borde hacia dentro: promedio de los vecinos ya conocidos.
+  let frontier = holeIdx;
+  let guard = 0;
+  while (frontier.length && guard++ < Math.max(w, h)) {
+    const next: number[] = [];
+    const fill: { i: number; r: number; g: number; b: number }[] = [];
+    for (const i of frontier) {
+      const x = i % w, y = (i / w) | 0;
+      let r = 0, g = 0, b = 0, c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (!known[j]) continue;
+        r += out[j * 4]; g += out[j * 4 + 1]; b += out[j * 4 + 2]; c++;
+      }
+      if (c) fill.push({ i, r: r / c, g: g / c, b: b / c });
+      else next.push(i);
+    }
+    if (!fill.length) break;
+    for (const f of fill) { out[f.i * 4] = f.r; out[f.i * 4 + 1] = f.g; out[f.i * 4 + 2] = f.b; known[f.i] = 1; }
+    frontier = next;
+  }
+  // 2) Suavizado de Gauss-Seidel solo dentro del hueco (el color se reparte sin cortes).
+  const iters = Math.min(60, 12 + Math.round(Math.sqrt(holeIdx.length) / 4));
+  for (let it = 0; it < iters; it++) {
+    for (const i of holeIdx) {
+      const x = i % w, y = (i / w) | 0;
+      let r = 0, g = 0, b = 0, c = 0;
+      if (x > 0) { r += out[(i - 1) * 4]; g += out[(i - 1) * 4 + 1]; b += out[(i - 1) * 4 + 2]; c++; }
+      if (x < w - 1) { r += out[(i + 1) * 4]; g += out[(i + 1) * 4 + 1]; b += out[(i + 1) * 4 + 2]; c++; }
+      if (y > 0) { r += out[(i - w) * 4]; g += out[(i - w) * 4 + 1]; b += out[(i - w) * 4 + 2]; c++; }
+      if (y < h - 1) { r += out[(i + w) * 4]; g += out[(i + w) * 4 + 1]; b += out[(i + w) * 4 + 2]; c++; }
+      if (c) { out[i * 4] = r / c; out[i * 4 + 1] = g / c; out[i * 4 + 2] = b / c; }
+    }
+  }
+  for (let i = 0; i < n; i++) out[i * 4 + 3] = m.origAlpha[i];
+  return out;
+}

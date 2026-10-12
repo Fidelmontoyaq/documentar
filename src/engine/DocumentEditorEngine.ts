@@ -3,6 +3,7 @@
 // Todo lo que manipula el DOM directamente (contentEditable, execCommand,
 // arrastre de cuadros flotantes, etc.) vive aquí como una sola clase. React
 // solo dibuja el "chrome" (riel, panel, modal, barra) y llama a estos métodos.
+import { getCurve, setCurve as applyCurve, curveText, setCurveText, observeCurve, renderCurve, type CurveCfg } from './curvedText';
 import Sortable from 'sortablejs';
 import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
@@ -347,9 +348,27 @@ export class DocumentEditorEngine {
         e.preventDefault();
         this.copySelection(false);
       }
+      if (k === 'd' && this.getSelectedBox()) {
+        e.preventDefault();
+        this.etDuplicate();
+      }
+      if (k === '+' || k === '=') { e.preventDefault(); this.setZoom(Math.round(this.zoom * 100) + 10); }
+      if (k === '-' || k === '_') { e.preventDefault(); this.setZoom(Math.round(this.zoom * 100) - 10); }
+      if (k === '0') { e.preventDefault(); this.fitToWidth(); }
       return;
     }
     const selected = this.getSelectedBox();
+    // Flechas: mueven el elemento seleccionado (Shift = más rápido).
+    if (selected && !inField && !t?.isContentEditable && e.key.startsWith('Arrow') && !selected.classList.contains('cropping')) {
+      const step = e.shiftKey ? 10 : 1;
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      e.preventDefault();
+      selected.style.left = `${(parseFloat(selected.style.left) || 0) + dx}px`;
+      selected.style.top = `${(parseFloat(selected.style.top) || 0) + dy}px`;
+      this.scheduleCommit();
+      return;
+    }
     if (e.key === 'Escape' && selected && !selected.classList.contains('cropping') && !inField) {
       // Esc: suelta la selección (y sale del cuadro de texto si se estaba escribiendo).
       (document.activeElement as HTMLElement | null)?.blur?.();
@@ -1978,6 +1997,7 @@ export class DocumentEditorEngine {
   private initFloatingBox(box: HTMLElement) {
     if (!box || box.dataset.initialized === 'true') return;
     box.dataset.initialized = 'true';
+    if (box.dataset.type === 'text') observeCurve(box);
 
     box.addEventListener('pointerdown', () => this.selectFloatingBox(box));
 
@@ -2666,6 +2686,23 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  /** Texto curvo del cuadro de texto seleccionado (null si no hay o es recto). */
+  getCurveState(): { cfg: CurveCfg | null; text: string } | null {
+    const box = this.getSelectedBox();
+    if (!box || box.dataset.type !== 'text') return null;
+    return { cfg: getCurve(box), text: curveText(box) };
+  }
+
+  setCurve(cfg: CurveCfg | null, text?: string) {
+    const box = this.getSelectedBox();
+    if (!box || box.dataset.type !== 'text') return;
+    observeCurve(box);
+    if (text !== undefined) setCurveText(box, text);
+    applyCurve(box, cfg);
+    if (cfg) renderCurve(box);
+    this.commitNow();
+  }
+
   async setStickerBorder(opts: { width: number; color: string; shadow: boolean } | null) {
     const box = this.getEtBox();
     if (!box || box.dataset.type !== 'image') return;
@@ -2830,6 +2867,30 @@ export class DocumentEditorEngine {
     window.setTimeout(() => {
       this.restoring = false;
     }, 50);
+  }
+
+  /** Foto completa del documento (con las imágenes dentro) para guardarla en IndexedDB. */
+  exportSnapshot(): { html: string; font: string; pages: number } {
+    if (this.commitTimer) this.commitNow();
+    const snap = this.history[this.historyIndex] ?? this.serializeState();
+    const html = snap.replace(/src="@@img(\d+)@@"/g, (_m, i: string) => `src="${this.imgStore[Number(i)]}"`);
+    return { html, font: this.currentFont, pages: this.pagesWrapper.querySelectorAll('.a4-page').length };
+  }
+
+  /** Carga una foto guardada y la deja como punto de partida del historial. */
+  loadSnapshot(html: string, font?: string) {
+    if (font) this.currentFont = font;
+    this.restoreState(html);
+    this.history = [this.serializeState()];
+    this.historyIndex = 0;
+    this.emitHistory();
+    this.listeners.onPageCountChange?.(this.pagesWrapper.querySelectorAll('.a4-page').length);
+  }
+
+  /** ¿Es el documento recién abierto, sin nada escrito? */
+  isBlankDocument(): boolean {
+    const pages = this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page');
+    return pages.length === 1 && this.isPagePristine(pages[0]);
   }
 
   undo() {
@@ -3110,7 +3171,7 @@ export class DocumentEditorEngine {
   }
 
   /** Entrega un archivo: lo descarga o, con `share`, abre el menú de compartir del sistema (WhatsApp, correo…). */
-  private async deliverBlob(blob: Blob, filename: string, share?: boolean) {
+  private async deliverBlob(blob: Blob, filename: string, share?: boolean | 'whatsapp') {
     if (share) {
       try {
         const file = new File([blob], filename, { type: blob.type });
@@ -3123,7 +3184,12 @@ export class DocumentEditorEngine {
         if ((e as Error)?.name === 'AbortError') return;
       }
       this.saveBlob(blob, filename);
-      this.listeners.onNotice?.('Tu navegador no permite compartir archivos directamente: lo descargué para que lo adjuntes en WhatsApp o tu correo.');
+      if (share === 'whatsapp') {
+        window.open(`https://wa.me/?text=${encodeURIComponent(`Te comparto "${filename}"`)}`, '_blank', 'noopener');
+        this.listeners.onNotice?.('Descargué el archivo: adjúntalo en el chat de WhatsApp que se abrió.');
+      } else {
+        this.listeners.onNotice?.('Tu navegador no permite compartir archivos directamente: lo descargué para que lo adjuntes.');
+      }
       return;
     }
     this.saveBlob(blob, filename);

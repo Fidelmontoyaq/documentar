@@ -111,4 +111,48 @@ export async function splitPdf(file: File, mode: SplitMode): Promise<{ parts: { 
   return { parts, zip };
 }
 
+/** Corta el PDF en dos: las páginas 1..after y el resto. */
+export async function cutPdf(file: File, after: number): Promise<{ name: string; blob: Blob }[]> {
+  const src = await PDFDocument.load(new Uint8Array(await file.arrayBuffer()), { ignoreEncryption: true });
+  const total = src.getPageCount();
+  if (after < 1 || after >= total) throw new Error(`Elige una página entre 1 y ${total - 1}: el corte se hace después de ella.`);
+  const base = file.name.replace(/\.pdf$/i, '');
+  const idx = src.getPageIndices();
+  return [
+    { name: `${base}_parte1_pags_1-${after}.pdf`, blob: toBlob(await sub(src, idx.slice(0, after))) },
+    { name: `${base}_parte2_pags_${after + 1}-${total}.pdf`, blob: toBlob(await sub(src, idx.slice(after))) },
+  ];
+}
+
+/** Quita las páginas indicadas ("2, 5-7"). */
+export async function deletePages(file: File, text: string): Promise<Blob> {
+  const src = await PDFDocument.load(new Uint8Array(await file.arrayBuffer()), { ignoreEncryption: true });
+  const total = src.getPageCount();
+  const g = parseRanges(text, total);
+  if (!g) throw new Error(`Revisa las páginas: usa números entre 1 y ${total}, por ejemplo 2, 5-7.`);
+  const del = new Set(g.flat());
+  const keep = src.getPageIndices().filter((i) => !del.has(i));
+  if (!keep.length) throw new Error('No puedes eliminar todas las páginas.');
+  return toBlob(await sub(src, keep));
+}
+
+/**
+ * Añade páginas a un PDF: en blanco o tomadas de otro PDF/imágenes, al inicio, al final o después de la página `at`.
+ */
+export async function addPages(file: File, opts: { at: number; blank: number; from?: File[] }): Promise<Blob> {
+  const src = await PDFDocument.load(new Uint8Array(await file.arrayBuffer()), { ignoreEncryption: true });
+  const total = src.getPageCount();
+  const at = Math.min(Math.max(opts.at, 0), total);
+  const first = src.getPage(Math.min(at, total - 1));
+  const { width, height } = first.getSize();
+  let pos = at;
+  for (let i = 0; i < opts.blank; i++) src.insertPage(pos++, [width, height]);
+  if (opts.from?.length) {
+    const extra = await PDFDocument.load(new Uint8Array(await (await mergeFiles(opts.from)).arrayBuffer()));
+    const pages = await src.copyPages(extra, extra.getPageIndices());
+    pages.forEach((p) => src.insertPage(pos++, p));
+  }
+  return toBlob(await src.save());
+}
+
 export { downloadBlob } from './folioBatch';
