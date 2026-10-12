@@ -18,6 +18,7 @@ import type {
   MarginPresetClass,
   PageInfo,
   PageOrientation,
+  PageScope,
   ShapeKind,
   ShapeState,
   ToolbarState,
@@ -49,6 +50,8 @@ const LANDSCAPE_AR_MAX = 1.9;
 
 const CLIPBOARD_MARKER = '\u200b[DocuCraft-elemento]';
 const IMAGE_SELECTOR = ':scope > .floating-box[data-type="image"]';
+/** Imágenes "normales": las firmas no cuentan para ordenar ni para el contador de imágenes. */
+const ARRANGE_SELECTOR = ':scope > .floating-box[data-type="image"]:not([data-signature])';
 
 interface PageArea {
   x: number;
@@ -256,7 +259,7 @@ export class DocumentEditorEngine {
     this.infoRaf = requestAnimationFrame(() => {
       this.infoRaf = 0;
       const page = this.getActivePage();
-      const count = page ? page.querySelectorAll(IMAGE_SELECTOR).length : 0;
+      const count = page ? page.querySelectorAll(ARRANGE_SELECTOR).length : 0;
       this.listeners.onActiveImagesChange?.(count);
       this.emitPageInfo();
     });
@@ -700,6 +703,17 @@ export class DocumentEditorEngine {
     return el && el.offsetWidth > el.offsetHeight ? 'landscape' : 'portrait';
   }
 
+  private setPageOrientationNoCommit(pageId: string, orientation: PageOrientation) {
+    const page = document.getElementById(pageId);
+    if (!page || this.getPageOrientation(pageId) === orientation) return;
+    const ow = page.offsetWidth;
+    const oh = page.offsetHeight;
+    const kind = page.dataset.kind === 'design' ? 'design' : 'doc';
+    this.applySize(page, oh, ow, kind, page.dataset.custom === '1');
+    if (kind === 'design') this.scaleBoxes(page, ow, oh, oh, ow);
+    else requestAnimationFrame(() => this.arrangeImagesOn(page, 'grid'));
+  }
+
   setPageOrientation(pageId: string, orientation: PageOrientation) {
     const page = document.getElementById(pageId);
     if (!page || this.getPageOrientation(pageId) === orientation) return;
@@ -983,7 +997,7 @@ export class DocumentEditorEngine {
   /** Igual que `arrangeImages`, pero sobre una hoja concreta (no necesariamente la activa). */
   private arrangeImagesPaged(page: HTMLElement, layout: ArrangeLayoutId, perPage = 0) {
     this.busy = true;
-    const boxes = Array.from(page.querySelectorAll<HTMLElement>(IMAGE_SELECTOR));
+    const boxes = Array.from(page.querySelectorAll<HTMLElement>(ARRANGE_SELECTOR));
     const n = perPage > 0 ? Math.floor(perPage) : boxes.length;
     if (n > 0 && n < boxes.length) {
       let ref = page;
@@ -1030,7 +1044,7 @@ export class DocumentEditorEngine {
   }
 
   private arrangeImagesOn(page: HTMLElement, layout: ArrangeLayoutId) {
-    const boxes = Array.from(page.querySelectorAll<HTMLElement>(IMAGE_SELECTOR));
+    const boxes = Array.from(page.querySelectorAll<HTMLElement>(ARRANGE_SELECTOR));
     if (boxes.length === 0) return;
     const area = this.getPageArea(page);
     const items = boxes.map((b) => ({
@@ -1073,7 +1087,8 @@ export class DocumentEditorEngine {
     src: string,
     maxW: number,
     maxH: number,
-    offset = 0
+    offset = 0,
+    signature = false
   ): Promise<HTMLElement> {
     const nat = await loadImageNaturalSize(src);
     const area = this.getPageArea(page);
@@ -1087,16 +1102,21 @@ export class DocumentEditorEngine {
     const box = this.insertFloatingImageAt(page, src, left, top, width, height, nat.w / nat.h);
     box.dataset.natW = String(nat.w);
     box.dataset.natH = String(nat.h);
-    this.insertFloatingCaptionAt(page, left, top + height + 8, width, box.dataset.fbId ?? null);
+    if (signature) {
+      box.dataset.signature = '1';
+    } else {
+      this.insertFloatingCaptionAt(page, left, top + height + 8, width, box.dataset.fbId ?? null);
+    }
     return box;
   }
 
   /** Inserta una imagen suelta en la hoja donde está el usuario. */
-  async insertFloatingImage(src: string): Promise<void> {
+  async insertFloatingImage(src: string, opts: { signature?: boolean } = {}): Promise<void> {
     const page = this.getActivePage();
     if (!page) return;
     const area = this.getPageArea(page);
-    const box = await this.addImageToPage(page, src, Math.min(area.w * 0.6, 480), Math.min(area.h * 0.5, 480), this.nextFloatingOffset());
+    const box = await this.addImageToPage(page, src, Math.min(area.w * 0.6, 480), Math.min(area.h * 0.5, 480), this.nextFloatingOffset(), !!opts.signature);
+    if (opts.signature) this.scheduleImageInfo();
     this.selectFloatingBox(box);
   }
 
@@ -2207,10 +2227,28 @@ export class DocumentEditorEngine {
 
   // ===================== LIENZO: tamaño, fondo, ajustes, guías, sticker =====================
 
-  private pageScope(scope: 'page' | 'all'): HTMLElement[] {
-    if (scope === 'all') return Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
-    const p = this.getActivePage();
-    return p ? [p] : [];
+  private pageScope(scope: PageScope): HTMLElement[] {
+    const all = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
+    if (scope === 'all') return all;
+    if (Array.isArray(scope)) return scope.map((i) => all[i]).filter(Boolean);
+    const cur = this.getActivePage();
+    if (!cur) return [];
+    const idx = all.indexOf(cur);
+    if (scope === 'from') return all.slice(idx);
+    if (scope === 'until') return all.slice(0, idx + 1);
+    return [cur];
+  }
+
+  /** Vertical u horizontal en las hojas indicadas (esta, todas, de aquí en adelante/atrás o una lista). */
+  setOrientationScope(orientation: PageOrientation, scope: PageScope) {
+    this.busy = true;
+    this.pageScope(scope).forEach((p) => {
+      if (p.id) this.setPageOrientationNoCommit(p.id, orientation);
+    });
+    this.busy = false;
+    this.updatePageNumbers();
+    this.commitNow();
+    this.emitPageInfo();
   }
 
   /** Margen global vigente, aplicado a una hoja de documento. */
@@ -2307,7 +2345,7 @@ export class DocumentEditorEngine {
   }
 
   /** Cambia el tamaño de la hoja activa o de todas. `kind` decide si es documento o lienzo de diseño. */
-  setCanvasSize(w: number, h: number, opts: { scope: 'page' | 'all'; kind: 'doc' | 'design' }) {
+  setCanvasSize(w: number, h: number, opts: { scope: PageScope; kind: 'doc' | 'design' }) {
     const nw = Math.max(50, Math.min(8000, Math.round(w)));
     const nh = Math.max(50, Math.min(8000, Math.round(h)));
     this.emitCmd({ t: 'size', w: nw, h: nh, kind: opts.kind, scope: opts.scope });
@@ -2343,14 +2381,14 @@ export class DocumentEditorEngine {
   }
 
   /** Fondo de la hoja: 'white', 'transparent' o un color #rrggbb. */
-  setPageBackground(value: string, scope: 'page' | 'all') {
+  setPageBackground(value: string, scope: PageScope) {
     this.pageScope(scope).forEach((p) => this.applyBackground(p, value));
     this.commitNow();
     this.emitPageInfo();
   }
 
   /** En lienzos de diseño: mostrar u ocultar título, texto y pie de página. */
-  setHeaderFooterVisible(show: boolean, scope: 'page' | 'all') {
+  setHeaderFooterVisible(show: boolean, scope: PageScope) {
     this.pageScope(scope).forEach((p) => {
       if (p.dataset.kind === 'design') p.dataset.hf = show ? '1' : '0';
     });
@@ -3071,6 +3109,26 @@ export class DocumentEditorEngine {
     await this.exportDocument({ format: 'pdf', scope: 'all', scale: 2 });
   }
 
+  /** Entrega un archivo: lo descarga o, con `share`, abre el menú de compartir del sistema (WhatsApp, correo…). */
+  private async deliverBlob(blob: Blob, filename: string, share?: boolean) {
+    if (share) {
+      try {
+        const file = new File([blob], filename, { type: blob.type });
+        const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+        if (nav.share && nav.canShare?.({ files: [file] })) {
+          await nav.share({ files: [file], title: filename });
+          return;
+        }
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return;
+      }
+      this.saveBlob(blob, filename);
+      this.listeners.onNotice?.('Tu navegador no permite compartir archivos directamente: lo descargué para que lo adjuntes en WhatsApp o tu correo.');
+      return;
+    }
+    this.saveBlob(blob, filename);
+  }
+
   private saveBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -3144,7 +3202,7 @@ export class DocumentEditorEngine {
           if (i > 0) pdf.addPage([w, h], w > h ? 'l' : 'p');
           pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, w, h);
         }
-        pdf.save(`Documento_Ensamblado_${stamp}.pdf`);
+        await this.deliverBlob(pdf.output('blob'), `Documento_${stamp}.pdf`, opts.share);
       } else {
         const mime = opts.format === 'png' ? 'image/png' : 'image/jpeg';
         const toBlob = (c: HTMLCanvasElement) =>
@@ -3153,13 +3211,13 @@ export class DocumentEditorEngine {
           );
         const ext = opts.format;
         if (pages.length === 1) {
-          this.saveBlob(await toBlob(await render(pages[0])), `lienzo_${stamp}.${ext}`);
+          await this.deliverBlob(await toBlob(await render(pages[0])), `lienzo_${stamp}.${ext}`, opts.share);
         } else {
           const zip = new JSZip();
           for (let i = 0; i < pages.length; i++) {
             zip.file(`lienzo_${String(i + 1).padStart(2, '0')}.${ext}`, await toBlob(await render(pages[i])));
           }
-          this.saveBlob(await zip.generateAsync({ type: 'blob' }), `lienzos_${stamp}.zip`);
+          await this.deliverBlob(await zip.generateAsync({ type: 'blob' }), `lienzos_${stamp}.zip`, opts.share);
         }
       }
     } catch (error) {
