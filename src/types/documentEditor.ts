@@ -132,7 +132,7 @@ export interface ExportOptions {
   /** Multiplicador de resolución: 1 = tamaño exacto del lienzo en píxeles. */
   scale: number;
   /** Abre el menú de compartir del sistema en lugar de descargar. */
-  share?: boolean;
+  share?: boolean | 'whatsapp';
 }
 
 /** Órdenes del motor que se pueden grabar y repetir (presets / macros). */
