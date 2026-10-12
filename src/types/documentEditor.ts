@@ -123,16 +123,21 @@ export interface PageInfo {
   grid: boolean;
 }
 
+/** Hojas a las que se aplica un cambio: la actual, todas, de la actual en adelante/atrás, o una lista de posiciones (0 = primera). */
+export type PageScope = 'page' | 'all' | 'from' | 'until' | number[];
+
 export interface ExportOptions {
   format: 'pdf' | 'png' | 'jpg';
   scope: 'page' | 'all';
   /** Multiplicador de resolución: 1 = tamaño exacto del lienzo en píxeles. */
   scale: number;
+  /** Abre el menú de compartir del sistema en lugar de descargar. */
+  share?: boolean;
 }
 
 /** Órdenes del motor que se pueden grabar y repetir (presets / macros). */
 export type EngineCmd =
-  | { t: 'size'; w: number; h: number; kind: 'doc' | 'design'; scope: 'page' | 'all' }
+  | { t: 'size'; w: number; h: number; kind: 'doc' | 'design'; scope: PageScope }
   | { t: 'margin'; value: string }
   | { t: 'marginCm'; cm: number }
   | { t: 'font'; value: string }
