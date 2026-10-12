@@ -19,9 +19,12 @@ export default {
         'ink-soft': '#5B6270',
         // Azul — nuevo color principal (botones, selecciones, estados activos)
         // Se conserva la escala completa (blue-400, blue-600…) y `blue` solo sigue valiendo #2563EB.
-        blue: { ...colors.blue, DEFAULT: '#2563EB' },
-        'blue-dark': '#1D4ED8',
-        'blue-light': '#EAF1FF',
+        // Azul acero: sobrio y profesional (sin el azul eléctrico por defecto de Tailwind).
+        blue: { 50: '#f3f6fb', 100: '#e4eaf5', 200: '#cad6ec', 300: '#a9bee3', 400: '#82a0d2', 500: '#5b7fbd', 600: '#3f63a6', 700: '#34528a', 800: '#2c4270', 900: '#26385d', 950: '#18233b', DEFAULT: '#3f63a6' },
+        // Verde salvia/teal apagado en lugar del esmeralda fosforescente.
+        emerald: { 50: '#f1f8f6', 100: '#dcede8', 200: '#bcdcd3', 300: '#94c4b8', 400: '#6aa898', 500: '#488c7c', 600: '#397265', 700: '#2f5c52', 800: '#284b44', 900: '#233f39', 950: '#102421' },
+        'blue-dark': '#34528a',
+        'blue-light': '#e4eaf5',
         // Dorado — se conserva SOLO para detalles mínimos (logo, botón "Nueva plantilla")
         brass: '#A9824F',
         'brass-light': '#D9C08F',
