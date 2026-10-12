@@ -15,6 +15,7 @@ import {
 } from '../../engine/folio';
 import { BATCH_ACCEPT, downloadBlob, foliateFiles, type FolioBatchFileResult } from '../../engine/folioBatch';
 import { FontPicker } from './FontPicker';
+import { NextSteps, type AfterAction } from './TaskKit';
 
 interface FolioModalProps {
   /** Abrir directamente en «Varios archivos» (sin tocar el documento). */
@@ -24,6 +25,8 @@ interface FolioModalProps {
   engine: DocumentEditorEngine | null;
   pageCount: number;
   recentFonts: string[];
+  /** Después de descargar el lote: seguir editando u otra tarea. */
+  onAfter?: (a: AfterAction, files: File[]) => void;
 }
 
 const field = 'bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 py-1.5 px-2 outline-none focus:border-blue-500';
@@ -74,7 +77,8 @@ function Preview({ cfg, index, total }: { cfg: FolioConfig; index: number; total
  * transparencia) que se usa de dos maneras: sobre el documento abierto o
  * aplicado a muchos archivos a la vez, descargándolos ya foliados.
  */
-export function FolioModal({ open, onClose, engine, pageCount, recentFonts, startTab }: FolioModalProps) {
+export function FolioModal({ open, onClose, engine, pageCount, recentFonts, startTab, onAfter }: FolioModalProps) {
+  const [outFile, setOutFile] = useState<File | null>(null);
   const [cfg, setCfg] = useState<FolioConfig>(() => loadFolioConfig());
   const [tab, setTab] = useState<'doc' | 'batch'>('doc');
   const [files, setFiles] = useState<File[]>([]);
@@ -119,12 +123,14 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
     if (!files.length) return;
     setBatchError(null);
     setResults(null);
+    setOutFile(null);
     setRunning({ done: 0, total: files.length * 2, current: 'Preparando…' });
     try {
       const res = await foliateFiles(files, cfg, { numbering, output }, (done, total, current) =>
         setRunning({ done, total, current })
       );
       downloadBlob(res.blob, res.filename);
+      setOutFile(res.blob.type === 'application/pdf' ? new File([res.blob], res.filename, { type: 'application/pdf' }) : null);
       setResults(res.results);
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : 'Ocurrió un error al foliar.');
@@ -146,7 +152,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
   if (!open) return null;
 
   return createPortal(
-    <div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
+    <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 md:rounded-2xl shadow-2xl w-full max-w-5xl h-[94dvh] md:h-auto md:max-h-[92vh] flex flex-col rounded-t-2xl">
         <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b border-slate-800 shrink-0">
@@ -437,13 +443,14 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                     ))}
                   </div>
                 )}
+                {results && onAfter && <NextSteps files={outFile ? [outFile] : []} imagesOnly={!outFile} onAfter={onAfter} />}
                 <p className="text-[10px] text-slate-500">Los PDF conservan su calidad (el folio se añade encima, sin volver a rasterizar). Word (.docx) no se admite aquí: expórtalo antes a PDF.</p>
               </div>
             )}
           </div>
         </div>
       </div>
-    </div>,
+    </div></div>,
     document.body
   );
 }

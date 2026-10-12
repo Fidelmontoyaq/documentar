@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Circle } from 'lucide-react';
 import { useDocumentEditorEngine } from '../../hooks/useDocumentEditorEngine';
 import { readFileAsDataURL } from '../../engine/fileUtils';
 import { FONT_FILE_RE, addFontFiles } from '../../engine/fontLibrary';
@@ -14,12 +13,13 @@ import { FolioModal } from './FolioModal';
 import { CanvasPanel } from './CanvasPanel';
 import { ExportDialog } from './ExportDialog';
 import { RemoveBgDialog } from './RemoveBgDialog';
-import { QuickTasks, type QuickTask } from './QuickTasks';
 import { BatchBgModal } from './BatchBgModal';
-import { AssistantPanel, useRecorder } from './AssistantPanel';
-import { exportAdvice, loadMem, recorder, suggestNext, track, undoPreset, type ActionId, type PresetRun, type Tip } from '../../engine/assistant';
+import { HomeScreen, type HomeTask } from './HomeScreen';
+import { MergeTask, SplitTask } from './PdfTasks';
+import type { AfterAction } from './TaskKit';
+import { TopBar } from './TopBar';
 import { ThumbnailPanel, ViewSwitcher, PresentationView, type ViewMode } from './PageViews';
-import { AboutModal, InstallHelp } from './AboutModal';
+import { InstallHelp } from './InstallHelp';
 import { GuidedTour, tourDisabled } from './GuidedTour';
 import { useTheme } from '../../engine/theme';
 import { useInstall } from '../../hooks/useInstall';
@@ -62,21 +62,17 @@ export function DocumentEditorApp() {
   const install = useInstall();
   const seen = (() => { try { return localStorage.getItem('docucraft.seen') === '1'; } catch { return true; } })();
   const [firstRun] = useState(!seen);
-  const [aboutOpen, setAboutOpen] = useState(!seen);
+  const [homeOpen, setHomeOpen] = useState(!seen);
   const [tourOpen, setTourOpen] = useState(false);
   const [viewPref, setViewPref] = useState<ViewMode | null>(() => {
     try { const v = localStorage.getItem('docucraft.view'); return v === 'thumbs' || v === 'current' ? v : null; } catch { return null; }
   });
   const [presenting, setPresenting] = useState(false);
   const [pagesSheet, setPagesSheet] = useState(false);
-  const [quickOpen, setQuickOpen] = useState(false);
   const [bgBatchOpen, setBgBatchOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
   const [folioStart, setFolioStart] = useState<'doc' | 'batch'>('doc');
-  const [tip, setTip] = useState<Tip | null>(null);
-  const [tipExport, setTipExport] = useState(false);
-  const [lastRun, setLastRun] = useState<PresetRun | null>(null);
-  useRecorder();
   const [bgEdit, setBgEdit] = useState<{ id: string; src: string } | null>(null);
   const [organizerOpen, setOrganizerOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
@@ -113,81 +109,55 @@ export function DocumentEditorApp() {
     return () => window.removeEventListener('keydown', kd);
   }, []);
 
-  const trackAction = (a: ActionId, extra?: { folioOn?: boolean }) => {
-    const m = track(a, extra);
-    if (a !== 'export') {
-      const t = suggestNext(m, a);
-      setTip(t);
-      setTipExport(false);
+  const requestExport = () => setExportOpen(true);
+
+  /** Importa archivos al lienzo; solo los PDF activan «Editar PDF» si se pide. */
+  const importFiles = async (files: File[], mode: ImagesPerPageMode, opts: { pdfEdit?: boolean } = { pdfEdit: true }) => {
+    await engine?.handleFileSelect(files, mode);
+    if (opts.pdfEdit && files.some((f) => /\.pdf$/i.test(f.name)) && !pdfEditOn) {
+      await engine?.setPdfEditMode(true);
+      setNotice('PDF listo: toca un texto para editarlo. Con el botón «Editar PDF» lo apagas.');
+    } else if (!opts.pdfEdit && pdfEditOn) {
+      await engine?.setPdfEditMode(false);
     }
   };
 
-  useEffect(() => {
-    if (!engine) return;
-    engine.setCommandListener((c) => {
-      recorder.push(c);
-      trackAction(c.t === 'size' ? 'size' : c.t === 'folio' ? 'folio' : 'format');
-    });
-    return () => engine.setCommandListener(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine]);
+  const closeTasks = () => { setMergeOpen(false); setSplitOpen(false); setBgBatchOpen(false); setFolioOpen(false); };
 
-  useEffect(() => {
-    if (!tip) return;
-    const t = setTimeout(() => setTip(null), 14000);
-    return () => clearTimeout(t);
-  }, [tip]);
-
-  /** Exportar: antes se revisa si hay algo raro o si te estás saliendo de tu rutina. */
-  const requestExport = () => {
-    const advice = engine
-      ? exportAdvice(loadMem(), { folioEnabled: !!engine.getFolioConfig().enabled, pageCount, trailingBlank: engine.trailingBlankPages() })
-      : null;
-    if (advice) {
-      setTip(advice);
-      setTipExport(true);
-      return;
-    }
-    setExportOpen(true);
-  };
-
-  const goTo = (a: ActionId) => {
-    switch (a) {
-      case 'folio': setFolioStart('doc'); setFolioOpen(true); break;
-      case 'import': case 'merge': setPanel('import'); break;
-      case 'organize': setOrganizerOpen(true); break;
-      case 'export': requestExport(); break;
-      case 'size': setCanvasOpen(true); break;
-      case 'text': engine?.insertFloatingTextBox(); break;
-      case 'sign': setSignatureOpen(true); break;
-      case 'pdfedit': void engine?.setPdfEditMode(true); break;
+  /** Tarjetas de la pantalla de inicio: cada una lleva directo a su tarea. */
+  const onHomePick = async (task: HomeTask, files?: File[]) => {
+    setHomeOpen(false);
+    try { localStorage.setItem('docucraft.seen', '1'); } catch { /* ignore */ }
+    switch (task) {
+      case 'merge': setMergeOpen(true); break;
+      case 'split': setSplitOpen(true); break;
+      case 'folio': setFolioStart('batch'); setFolioOpen(true); break;
       case 'removebg': setBgBatchOpen(true); break;
-      case 'format': setPanel('format'); break;
-      case 'page': engine?.addNewPage(); break;
-      default: setNotice('Usa el botón correspondiente de la barra de herramientas.');
+      case 'design': setCanvasOpen(true); break;
+      case 'organize':
+        if (files?.length) { await importFiles(files, '1', { pdfEdit: false }); setOrganizerOpen(true); }
+        break;
+      case 'sign':
+        if (files?.length) {
+          await importFiles(files, '1', { pdfEdit: false });
+          setSignatureOpen(true);
+          setNotice('Dibuja tu firma, arrástrala a su lugar y toca «Descargar».');
+        }
+        break;
+      case 'editpdf':
+        if (files?.length) await importFiles(files, '1', { pdfEdit: true });
+        break;
     }
   };
 
-  const onTipAction = (t: Tip) => {
-    if (!t.action) return;
-    if (t.action.kind === 'removeBlank') {
-      engine?.removeTrailingBlankPages();
-      if (tipExport) setExportOpen(true);
-    } else if (t.action.kind === 'open') {
-      goTo(t.action.target);
-    }
-    setTip(null);
-    setTipExport(false);
-  };
-
-  const onQuickPick = async (task: QuickTask, files?: File[]) => {
-    setQuickOpen(false);
-    if (task === 'folio') { setFolioStart('batch'); setFolioOpen(true); return; }
-    if (task === 'removebg') { setBgBatchOpen(true); return; }
-    if (!files?.length) return;
-    await importFiles(files, '1');
-    if (task === 'organize') { trackAction('organize'); setOrganizerOpen(true); }
-    if (task === 'merge') { trackAction('merge'); setExportOpen(true); }
+  /** Después de descargar el resultado de una tarea: seguir con él en el editor o volver al inicio. */
+  const onAfter = async (action: AfterAction, files: File[]) => {
+    closeTasks();
+    if (action === 'home') { setHomeOpen(true); return; }
+    if (files.length) await importFiles(files, '1', { pdfEdit: action === 'edit' });
+    if (action === 'sign') { setSignatureOpen(true); setNotice('Dibuja tu firma, arrástrala a su lugar y toca «Descargar».'); }
+    else if (action === 'folio') { setFolioStart('doc'); setFolioOpen(true); }
+    else if (action === 'organize') setOrganizerOpen(true);
   };
 
   useEffect(() => {
@@ -204,24 +174,13 @@ export function DocumentEditorApp() {
     return () => clearTimeout(timeout);
   }, [errorMessage, clearError]);
 
-  const closeAbout = () => {
-    setAboutOpen(false);
+  const closeHome = () => {
+    setHomeOpen(false);
     try { localStorage.setItem('docucraft.seen', '1'); } catch { /* ignore */ }
     if (firstRun && !tourDisabled()) setTourOpen(true);
   };
 
-  /** Importa archivos; si entra un PDF se activa «Editar PDF» para poder tocar y corregir su texto. */
-  const importFiles = async (files: File[], mode: ImagesPerPageMode) => {
-    await engine?.handleFileSelect(files, mode);
-    trackAction('import');
-    if (files.some((f) => /\.pdf$/i.test(f.name)) && !pdfEditOn) {
-      await engine?.setPdfEditMode(true);
-      setNotice('PDF listo: toca un texto para editarlo. Con el botón «Editar PDF» lo apagas.');
-    }
-  };
-
   const handleAddImages = async (files: File[]) => {
-    trackAction('image');
     try {
       if (files.length === 1) {
         await engine?.insertFloatingImage(await readFileAsDataURL(files[0]));
@@ -272,34 +231,37 @@ export function DocumentEditorApp() {
 
     return (
     <div className="doc-editor h-[100dvh] flex flex-col overflow-hidden bg-slate-900 text-slate-50 font-sans print:bg-white print:text-black">
+      <TopBar
+        onHome={() => setHomeOpen(true)}
+        onSize={() => setCanvasOpen(true)}
+        onFormat={() => setPanel((cur) => (cur === 'format' ? null : 'format'))}
+        onFolio={() => { setFolioStart('doc'); setFolioOpen(true); }}
+        onOrganize={() => setOrganizerOpen(true)}
+        onDownload={requestExport}
+        onShare={() => void engine?.exportDocument({ format: 'pdf', scope: 'all', scale: 2, share: true })}
+        folioActive={folioActive}
+        formatActive={panel === 'format'}
+      />
       <div className="flex flex-1 min-h-0 overflow-hidden md:flex-row flex-col-reverse">
         <IconRail
           onOpenPanel={(m) => setPanel((cur) => (cur === m ? null : m))}
           activePanel={panel}
           pdfEditOn={pdfEditOn}
-          onTogglePdfEdit={() => { if (!pdfEditOn) trackAction('pdfedit'); void engine?.setPdfEditMode(!pdfEditOn); }}
+          onTogglePdfEdit={() => void engine?.setPdfEditMode(!pdfEditOn)}
           onAddImages={handleAddImages}
-          onAddTextBox={() => { trackAction('text'); engine?.insertFloatingTextBox(); }}
-          onAddPage={() => { trackAction('page'); engine?.addNewPage(); }}
-          onOpenSignature={() => { trackAction('sign'); setSignatureOpen(true); }}
-          onOpenOrganizer={() => { trackAction('organize'); setOrganizerOpen(true); }}
-          onExportPDF={requestExport}
+          onAddTextBox={() => engine?.insertFloatingTextBox()}
+          onAddPage={() => engine?.addNewPage()}
+          onOpenSignature={() => setSignatureOpen(true)}
           imageCount={imageCount}
-          onArrange={(layout, perPage) => { trackAction('arrange'); engine?.arrangeImages(layout, perPage); }}
+          onArrange={(layout, perPage) => engine?.arrangeImages(layout, perPage)}
           onInsertShape={(kind, size, filled) => engine?.insertShape(kind, size, filled)}
           onInsertFrame={(kind, size) => engine?.insertFrame(kind, size)}
-          onOpenFolio={() => { setFolioStart('doc'); setFolioOpen(true); }}
-          onOpenQuick={() => setQuickOpen(true)}
-          onOpenAssistant={() => setAssistantOpen(true)}
-          assistantAlert={!!tip}
-          folioActive={folioActive}
-          onOpenCanvas={() => setCanvasOpen(true)}
           onPageAction={(a) => engine?.pageAction(a)}
           onGoToPage={(d) => engine?.goToPage(d)}
           theme={themeMode}
           onTheme={setThemeMode}
           onOpenTour={() => setTourOpen(true)}
-          onOpenAbout={() => setAboutOpen(true)}
+          onOpenHome={() => setHomeOpen(true)}
           canInstall={install.canInstall}
           onInstall={() => void install.install()}
           drawerOpen={drawerOpen}
@@ -446,7 +408,7 @@ export function DocumentEditorApp() {
         isOpen={signatureOpen}
         onClose={() => setSignatureOpen(false)}
         onConfirm={(dataUrl) => {
-          void engine?.insertFloatingImage(dataUrl);
+          void engine?.insertFloatingImage(dataUrl, { signature: true });
         }}
       />
 
@@ -455,16 +417,16 @@ export function DocumentEditorApp() {
         src={bgEdit?.src ?? null}
         onClose={() => setBgEdit(null)}
         onApply={(dataUrl, w, h) => {
-          if (bgEdit) { trackAction('removebg'); engine?.applyEditedImage(bgEdit.id, dataUrl, w, h); }
+          if (bgEdit) { engine?.applyEditedImage(bgEdit.id, dataUrl, w, h); }
           setBgEdit(null);
         }}
       />
 
-      <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} />
+      <CanvasPanel open={canvasOpen} onClose={() => setCanvasOpen(false)} engine={engine} info={pageInfo} pageCount={pageCount} activeIndex={activeIndex} />
       <ExportDialog
         open={exportOpen}
         onClose={() => setExportOpen(false)}
-        onExport={(o) => { trackAction('export', { folioOn: !!engine?.getFolioConfig().enabled }); void engine?.exportDocument(o); }}
+        onExport={(o) => { void engine?.exportDocument(o); }}
         pageCount={pageCount}
         info={pageInfo}
       />
@@ -479,6 +441,7 @@ export function DocumentEditorApp() {
         pageCount={pageCount}
         recentFonts={recentFonts}
         startTab={folioStart}
+        onAfter={(a, f) => void onAfter(a, f)}
       />
 
       {pageCount > 1 && (
@@ -487,37 +450,10 @@ export function DocumentEditorApp() {
         </div>
       )}
       <PresentationView engine={engine} open={presenting} startIndex={activeIndex} onClose={() => setPresenting(false)} />
-      <QuickTasks open={quickOpen} onClose={() => setQuickOpen(false)} onPick={(t, f) => void onQuickPick(t, f)} />
-      <BatchBgModal open={bgBatchOpen} onClose={() => setBgBatchOpen(false)} />
-      <AssistantPanel
-        open={assistantOpen}
-        onClose={() => setAssistantOpen(false)}
-        engine={engine}
-        tip={tip}
-        onTipAction={onTipAction}
-        lastRun={lastRun}
-        onRan={(r) => { setLastRun(r); trackAction('format'); }}
-        onUndoRun={() => { if (engine && lastRun) undoPreset(engine, lastRun); setLastRun(null); setNotice('Listo: volvió todo como estaba.'); }}
-      />
-
-      {recorder.recording && (
-        <button type="button" onClick={() => setAssistantOpen(true)} className="fixed top-2 left-1/2 -translate-x-1/2 z-[62] flex items-center gap-2 bg-rose-600 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-xl print:hidden">
-          <Circle className="w-2.5 h-2.5 fill-current animate-pulse" /> Grabando {recorder.cmds.length} paso(s) · tocar para detener
-        </button>
-      )}
-
-      {tip && !assistantOpen && (
-        <div data-keep-selection className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-[58] w-[min(92vw,420px)] bg-slate-900 border border-blue-600/50 rounded-2xl shadow-2xl p-3 print:hidden">
-          <p className="text-[13px] text-slate-200 leading-snug">💡 {tip.text}</p>
-          <div className="flex gap-2 mt-2 justify-end">
-            <button type="button" onClick={() => { setTip(null); setTipExport(false); }} className="text-xs px-3 py-1.5 rounded-full text-slate-400">Ahora no</button>
-            {tipExport && <button type="button" onClick={() => { setTip(null); setTipExport(false); setExportOpen(true); }} className="text-xs px-3 py-1.5 rounded-full border border-slate-600 text-slate-200">Exportar igual</button>}
-            {tip.action && <button type="button" onClick={() => onTipAction(tip)} className="text-xs px-3 py-1.5 rounded-full bg-blue-600 text-white font-medium">{tip.action.label}</button>}
-          </div>
-        </div>
-      )}
-
-      <AboutModal open={aboutOpen} onClose={closeAbout} onStartTour={() => setTourOpen(true)} canInstall={install.canInstall} onInstall={() => void install.install()} firstRun={firstRun && !tourDisabled()} />
+      <HomeScreen open={homeOpen} onClose={closeHome} onPick={(t, f) => void onHomePick(t, f)} onTour={() => { setHomeOpen(false); setTourOpen(true); }} canInstall={install.canInstall} onInstall={() => void install.install()} />
+      {mergeOpen && <MergeTask onClose={() => setMergeOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
+      {splitOpen && <SplitTask onClose={() => setSplitOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
+      <BatchBgModal open={bgBatchOpen} onClose={() => setBgBatchOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} engine={engine} onOpenCanvas={() => setCanvasOpen(true)} />
       <InstallHelp kind={install.help} onClose={install.closeHelp} />
 

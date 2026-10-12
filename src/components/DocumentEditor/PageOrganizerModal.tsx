@@ -313,7 +313,7 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       const badge = document.createElement('div');
       badge.textContent = label;
       badge.style.cssText =
-        'position:fixed;top:-200px;padding:8px 14px;background:#2563eb;color:#fff;border-radius:8px;font:600 13px sans-serif;';
+        'position:fixed;top:-200px;padding:8px 14px;background:#3f63a6;color:#fff;border-radius:8px;font:600 13px sans-serif;';
       document.body.appendChild(badge);
       e.dataTransfer.setDragImage(badge, 20, 20);
       setTimeout(() => badge.remove(), 0);

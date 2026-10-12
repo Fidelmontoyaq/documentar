@@ -4,10 +4,10 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Ruler, ChevronDown, MoreHorizontal,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, ChevronDown, MoreHorizontal,
 } from 'lucide-react';
 import { FontPicker } from './FontPicker';
-import { RemoveBgIcon, StickerIcon } from './icons';
+import { RemoveBgIcon, StickerIcon, PageSizeIcon } from './icons';
 import { useState } from 'react';
 import { sizeLabel } from '../../engine/pageSizes';
 import type { PageInfo, ToolbarState } from '../../types/documentEditor';
@@ -187,7 +187,7 @@ export function ElementToolbar({
       {/* En el celular, lo de siempre cabe aquí para que la fila de arriba quede limpia. */}
       <div className="md:hidden flex items-center gap-1">
         <button type="button" className="et-btn gap-1.5 !bg-slate-800 border border-slate-700" title="Tamaño y fondo de la hoja" onMouseDown={keep} onClick={onOpenCanvas}>
-          <Ruler className="w-4 h-4 text-blue-400" /> <span>{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
+          <PageSizeIcon className="w-4 h-4 text-blue-400" /> <span>{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
         </button>
         {b('Copiar', onCopy, <Copy className="w-4 h-4" />)}
         {b('Pegar', onPaste, <ClipboardPaste className="w-4 h-4" />)}
@@ -291,7 +291,7 @@ export function ElementToolbar({
       {/* Fila 1 (centrada): lo de siempre + lo esencial + botón «Más» */}
       <div className="flex items-center justify-center gap-1 px-2 md:px-3 py-1.5 min-h-[46px] flex-wrap [&>*]:shrink-0">
         <button type="button" className="max-md:hidden et-btn gap-1.5 !bg-slate-800 border border-slate-700 !text-slate-100" title="Tamaño y fondo de la hoja (lienzo)" onMouseDown={keep} onClick={onOpenCanvas}>
-          <Ruler className="w-4 h-4 text-blue-400" />
+          <PageSizeIcon className="w-4 h-4 text-blue-400" />
           <span className="whitespace-nowrap">{pageInfo ? sizeLabel(pageInfo.w, pageInfo.h) : 'Tamaño'}</span>
         </button>
         <div className="et-sep max-md:hidden" />

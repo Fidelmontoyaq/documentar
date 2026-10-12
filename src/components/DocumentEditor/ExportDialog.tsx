@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, FileDown, Image as ImageIcon, FileType } from 'lucide-react';
+import { X, FileDown, Image as ImageIcon, FileType, Share2 } from 'lucide-react';
 import type { ExportOptions, PageInfo } from '../../types/documentEditor';
 
 interface ExportDialogProps {
@@ -28,11 +28,11 @@ export function ExportDialog({ open, onClose, onExport, pageCount, info }: Expor
   const transparentWarn = info?.bg === 'transparent' && format !== 'png';
 
   return createPortal(
-    <div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
+    <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
       <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 shadow-2xl w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-white font-bold text-base">Exportar</h2>
+          <h2 className="text-white font-bold text-base">Descargar o compartir</h2>
           <button type="button" onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"><X className="w-4 h-4" /></button>
         </div>
 
@@ -75,18 +75,31 @@ export function ExportDialog({ open, onClose, onExport, pageCount, info }: Expor
           </p>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            onExport({ format, scope, scale: format === 'pdf' ? 2 : scale });
-            onClose();
-          }}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition"
-        >
-          <FileDown className="w-4 h-4" /> Exportar {format.toUpperCase()}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onExport({ format, scope, scale: format === 'pdf' ? 2 : scale });
+              onClose();
+            }}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition"
+          >
+            <FileDown className="w-4 h-4" /> Descargar {format.toUpperCase()}
+          </button>
+          <button
+            type="button"
+            title="WhatsApp, correo u otras apps"
+            onClick={() => {
+              onExport({ format, scope, scale: format === 'pdf' ? 2 : scale, share: true });
+              onClose();
+            }}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-600 text-slate-100 hover:border-slate-400 transition"
+          >
+            <Share2 className="w-4 h-4" /> Compartir
+          </button>
+        </div>
       </div>
-    </div>,
+    </div></div>,
     document.body
   );
 }

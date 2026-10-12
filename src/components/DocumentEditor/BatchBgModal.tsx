@@ -5,6 +5,7 @@ import { removeBgFromFile, type BatchBgMode } from '../../engine/bgRemove';
 import { downloadBlob } from '../../engine/folioBatch';
 import { RemoveBgDialog } from './RemoveBgDialog';
 import { RemoveBgIcon } from './icons';
+import { NextSteps, type AfterAction } from './TaskKit';
 
 interface Item {
   id: string;
@@ -23,7 +24,8 @@ const MODES: { id: BatchBgMode; label: string; hint: string; icon: JSX.Element }
 ];
 
 /** Quitar el fondo de varias imágenes a la vez y descargarlas, sin abrir el lienzo. */
-export function BatchBgModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function BatchBgModal({ open, onClose, onAfter }: { open: boolean; onClose: () => void; onAfter: (a: AfterAction, files: File[]) => void }) {
+  const [saved, setSaved] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [mode, setMode] = useState<BatchBgMode>('ai-general');
   const [crop, setCrop] = useState(true);
@@ -67,6 +69,7 @@ export function BatchBgModal({ open, onClose }: { open: boolean; onClose: () => 
   const baseName = (n: string) => n.replace(/\.[^.]+$/, '');
   const done = items.filter((i) => i.status === 'ok' && i.outBlob);
   const downloadAll = async () => {
+    setSaved(true);
     if (done.length === 1) return downloadBlob(done[0].outBlob!, `${baseName(done[0].file.name)}-sin-fondo.png`);
     const zip = new JSZip();
     const used = new Set<string>();
@@ -132,6 +135,7 @@ export function BatchBgModal({ open, onClose }: { open: boolean; onClose: () => 
           </div>
 
           {progress && <div className="text-xs text-slate-300">{progress}</div>}
+          {saved && done.length > 0 && <NextSteps imagesOnly files={done.map((i) => new File([i.outBlob!], `${baseName(i.file.name)}-sin-fondo.png`, { type: 'image/png' }))} onAfter={onAfter} />}
           {mode !== 'auto' && <p className="text-[10px] text-slate-500">La IA descarga su modelo la primera vez (unas decenas de MB) y después queda guardado. Las imágenes se procesan en tu equipo: no se suben a ningún servidor.</p>}
         </div>
 

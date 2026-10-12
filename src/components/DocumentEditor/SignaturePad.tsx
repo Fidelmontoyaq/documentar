@@ -220,7 +220,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ isOpen, onClose, onC
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+    <div className="de-portal"><div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
@@ -383,7 +383,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ isOpen, onClose, onC
           </button>
         </div>
       </div>
-    </div>,
+    </div></div>,
     document.body
   );
 };

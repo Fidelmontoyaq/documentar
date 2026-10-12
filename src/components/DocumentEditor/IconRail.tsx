@@ -1,8 +1,8 @@
 import { useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import {
-  UploadCloud, Image as ImageIcon, Type, FilePlus, LayoutGrid, FileDown, SlidersHorizontal, LayoutTemplate,
-  Shapes, Frame, Hash, FilePenLine, Ruler, Menu, X, ArrowUp, ArrowDown, RotateCw, CopyPlus, Trash2,
-  Sun, Moon, MonitorSmartphone, HelpCircle, Info, Download, ChevronLeft, ChevronRight, Zap, Sparkles,
+  UploadCloud, Image as ImageIcon, Type, FilePlus, LayoutTemplate,
+  Shapes, Frame, FilePenLine, Menu, X, ArrowUp, ArrowDown, RotateCw, CopyPlus, Trash2,
+  Sun, Moon, MonitorSmartphone, HelpCircle, Download, ChevronLeft, ChevronRight, LayoutDashboard,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
 import { ShapesMenu } from './ShapesMenu';
@@ -22,24 +22,16 @@ interface IconRailProps {
   onAddTextBox: () => void;
   onAddPage: () => void;
   onOpenSignature: () => void;
-  onOpenOrganizer: () => void;
-  onExportPDF: () => void;
-  onOpenCanvas: () => void;
   imageCount: number;
   onArrange: (layout: ArrangeLayoutId, perPage: number) => void;
   onInsertShape: (kind: ShapeKind, size: { w: number; h: number }, filled: boolean) => void;
   onInsertFrame: (kind: ShapeKind, size: { w: number; h: number }) => void;
-  onOpenFolio: () => void;
-  folioActive: boolean;
   onPageAction: (a: PageAction) => void;
   onGoToPage: (d: 1 | -1) => void;
   theme: ThemeMode;
   onTheme: (m: ThemeMode) => void;
   onOpenTour: () => void;
-  onOpenAbout: () => void;
-  onOpenQuick: () => void;
-  onOpenAssistant: () => void;
-  assistantAlert: boolean;
+  onOpenHome: () => void;
   canInstall: boolean;
   onInstall: () => void;
   drawerOpen: boolean;
@@ -51,7 +43,7 @@ interface Tool {
   label: string;
   title: string;
   icon: ReactNode;
-  group: 'archivo' | 'insertar' | 'editar' | 'documento';
+  group: 'archivo' | 'insertar' | 'editar';
   onClick: (e: MouseEvent<HTMLElement>) => void;
   active?: boolean;
   disabled?: boolean;
@@ -63,7 +55,6 @@ const GROUPS: { id: Tool['group']; label: string }[] = [
   { id: 'archivo', label: 'Archivo' },
   { id: 'insertar', label: 'Insertar' },
   { id: 'editar', label: 'Editar' },
-  { id: 'documento', label: 'Documento' },
 ];
 
 const THEMES: { id: ThemeMode; label: string; icon: ReactNode }[] = [
@@ -88,9 +79,7 @@ export function IconRail(p: IconRailProps) {
   const closeDrawer = () => p.setDrawerOpen(false);
 
   const tools: Tool[] = [
-    { id: 'quick', label: 'Rápido', title: 'Tareas rápidas: foliar, quitar fondos, ordenar… sin abrir la hoja', icon: <Zap className="w-5 h-5" />, group: 'archivo', accent: true, onClick: p.onOpenQuick },
     { id: 'import', label: 'Subir', title: 'Importar archivos (PDF, Word, imágenes)', icon: <UploadCloud className="w-5 h-5" />, group: 'archivo', active: p.activePanel === 'import', onClick: () => p.onOpenPanel('import') },
-    { id: 'export', label: 'Exportar', title: 'Exportar (PDF, PNG o JPG)', icon: <FileDown className="w-5 h-5" />, group: 'archivo', accent: true, onClick: p.onExportPDF },
     { id: 'image', label: 'Imagen', title: 'Agregar imágenes a la hoja actual', icon: <ImageIcon className="w-5 h-5" />, group: 'insertar', onClick: () => imageInputRef.current?.click() },
     { id: 'text', label: 'Texto', title: 'Agregar cuadro de texto', icon: <Type className="w-5 h-5" />, group: 'insertar', onClick: p.onAddTextBox },
     { id: 'shapes', label: 'Formas', title: 'Agregar formas', icon: <Shapes className="w-5 h-5" />, group: 'insertar', active: shapesMode === 'shapes', onClick: (e) => { setShapesTop(e.currentTarget.getBoundingClientRect().top); setShapesMode((m) => (m === 'shapes' ? null : 'shapes')); } },
@@ -98,17 +87,16 @@ export function IconRail(p: IconRailProps) {
     { id: 'sign', label: 'Firma', title: 'Agregar firma', icon: <SignatureIcon className="w-5 h-5" />, group: 'insertar', onClick: p.onOpenSignature },
     { id: 'page', label: 'Hoja', title: 'Agregar una hoja en blanco', icon: <FilePlus className="w-5 h-5" />, group: 'insertar', onClick: p.onAddPage },
     { id: 'pdfedit', label: 'Editar PDF', title: 'Editar el texto de un PDF importado (toca un texto)', icon: <FilePenLine className="w-5 h-5" />, group: 'editar', active: p.pdfEditOn, onClick: p.onTogglePdfEdit },
-    { id: 'arrange', label: 'Ordenar', title: canArrange ? 'Ordenar las imágenes de esta hoja' : 'Necesitas 2 o más imágenes en la hoja actual', icon: <LayoutTemplate className="w-5 h-5" />, group: 'editar', disabled: !canArrange, badge: canArrange ? p.imageCount : undefined, active: arrangeOpen, onClick: (e) => { setArrangeTop(e.currentTarget.getBoundingClientRect().top); setArrangeOpen((v) => !v); } },
-    { id: 'canvas', label: 'Tamaño', title: 'Tamaño de la hoja (A4, Carta, diapositivas, redes…)', icon: <Ruler className="w-5 h-5" />, group: 'documento', onClick: p.onOpenCanvas },
-    { id: 'format', label: 'Formato', title: 'Formato del documento (tipografía, márgenes)', icon: <SlidersHorizontal className="w-5 h-5" />, group: 'documento', active: p.activePanel === 'format', onClick: () => p.onOpenPanel('format') },
-    { id: 'folio', label: 'Foliado', title: 'Foliado (numerar páginas)', icon: <Hash className="w-5 h-5" />, group: 'documento', active: p.folioActive, onClick: p.onOpenFolio },
-    { id: 'organize', label: 'Organizar', title: 'Organizar páginas', icon: <LayoutGrid className="w-5 h-5" />, group: 'documento', onClick: p.onOpenOrganizer },
+    // «Ordenar» solo aparece cuando la hoja tiene 2 o más imágenes (las firmas no cuentan).
+    ...(canArrange
+      ? [{ id: 'arrange', label: 'Ordenar', title: 'Ordenar las imágenes de esta hoja', icon: <LayoutTemplate className="w-5 h-5" />, group: 'editar' as const, badge: p.imageCount, active: arrangeOpen, onClick: (e: MouseEvent<HTMLElement>) => { setArrangeTop(e.currentTarget.getBoundingClientRect().top); setArrangeOpen((v) => !v); } }]
+      : []),
   ];
   const byId = (id: string) => tools.find((t) => t.id === id)!;
-  const essentials = ['import', 'image', 'text', 'pdfedit', 'export'].map(byId);
+  const essentials = ['import', 'image', 'text', 'pdfedit', 'sign'].map(byId);
 
   const tone = (t: Tool) =>
-    t.active ? 'text-blue-600 bg-blue-600/10' : t.accent ? 'text-emerald-500 hover:bg-emerald-600/15' : 'text-slate-400 hover:text-white hover:bg-slate-800/70';
+    t.active ? 'text-blue-600 bg-blue-600/10' : t.accent ? 'text-blue-500 hover:bg-blue-600/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/70';
 
   const ToolBtn = ({ t, variant }: { t: Tool; variant: 'rail' | 'bar' | 'drawer' }) => {
     const size =
@@ -172,25 +160,10 @@ export function IconRail(p: IconRailProps) {
             {themeNow.icon}
             <span className="text-[10px] leading-none">{themeNow.label}</span>
           </button>
-          <button type="button" data-tour="assistant" onClick={p.onOpenAssistant} title="Asistente local: sugerencias y presets" className="relative flex flex-col items-center gap-1 py-2 rounded-lg text-blue-600 hover:bg-blue-600/10">
-            <Sparkles className="w-5 h-5" />
-            <span className="text-[10px] leading-none">Asistente</span>
-            {p.assistantAlert && <span className="absolute top-1.5 right-4 w-2 h-2 rounded-full bg-rose-500" />}
-          </button>
           <button type="button" data-tour="help" onClick={p.onOpenTour} title="Ver el tutorial paso a paso" className="flex flex-col items-center gap-1 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70">
             <HelpCircle className="w-5 h-5" />
             <span className="text-[10px] leading-none">Ayuda</span>
           </button>
-          <button type="button" onClick={p.onOpenAbout} title={`Acerca de ${SITE.name}`} className="flex flex-col items-center gap-1 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70">
-            <Info className="w-5 h-5" />
-            <span className="text-[10px] leading-none">Nosotros</span>
-          </button>
-          {p.canInstall && (
-            <button type="button" onClick={p.onInstall} title="Instalar como aplicación" className="flex flex-col items-center gap-1 py-2 rounded-lg text-blue-600 hover:bg-blue-600/10">
-              <Download className="w-5 h-5" />
-              <span className="text-[10px] leading-none">Instalar</span>
-            </button>
-          )}
         </div>
       </nav>
 
@@ -281,9 +254,8 @@ export function IconRail(p: IconRailProps) {
 
           <section className="space-y-1.5">
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Ayuda</h3>
-            <button type="button" onClick={() => { closeDrawer(); p.onOpenAssistant(); }} className="relative w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><Sparkles className="w-4 h-4 text-blue-600" />Asistente (sugerencias y presets){p.assistantAlert && <span className="ml-auto w-2 h-2 rounded-full bg-rose-500" />}</button>
+            <button type="button" onClick={() => { closeDrawer(); p.onOpenHome(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><LayoutDashboard className="w-4 h-4 text-blue-600" />Inicio · todas las tareas</button>
             <button type="button" onClick={() => { closeDrawer(); p.onOpenTour(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><HelpCircle className="w-4 h-4 text-blue-600" />Tutorial paso a paso</button>
-            <button type="button" onClick={() => { closeDrawer(); p.onOpenAbout(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-800 text-sm text-slate-200"><Info className="w-4 h-4 text-blue-600" />Nosotros</button>
             {p.canInstall && (
               <button type="button" onClick={() => { closeDrawer(); p.onInstall(); }} className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 text-sm text-white font-medium"><Download className="w-4 h-4" />Instalar la aplicación</button>
             )}

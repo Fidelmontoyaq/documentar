@@ -42,3 +42,27 @@ export function StickerIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** Tamaño de hoja: una hoja con flechas de medida en el ancho y el alto. */
+export function PageSizeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M6 3.5h8l3.5 3.5v9.5H6z" />
+      <path d="M14 3.5V7h3.5" />
+      <path d="M3.2 6v10.5M2 7.3 3.2 6l1.2 1.3M2 15.2l1.2 1.3 1.2-1.3" strokeWidth={1.4} />
+      <path d="M6 20h11.5M7.3 18.8 6 20l1.3 1.2M16.2 18.8l1.3 1.2-1.3 1.2" strokeWidth={1.4} />
+    </svg>
+  );
+}
+
+/** Logo de Documentar: dos hojas superpuestas con una esquina doblada. */
+export function LogoMark(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      <path d="M8 7V4.5h7.5L19 8v8.5H16" />
+      <path d="M5 7h7.5L16 10.5V20H5z" />
+      <path d="M12.5 7v3.5H16" />
+      <path d="M7.5 14h5M7.5 16.7h3.5" strokeWidth={1.4} />
+    </svg>
+  );
+}

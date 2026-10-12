@@ -19,19 +19,20 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  { id: 'size', title: '1 · Elige el tipo de hoja', text: 'Empieza por el papel. Puedes cambiarlo después desde «Tamaño».', choose: true },
-  { id: 'quick', title: 'Tareas rápidas', text: 'Si solo quieres foliar varios archivos, quitar fondos o reordenar un PDF, entra por aquí: vas directo, sin preparar la hoja.', target: '[data-tour="quick"]' },
+  { id: 'size', title: '1 · Elige el tipo de hoja', text: 'Empieza por el papel. Puedes cambiarlo después desde «Tamaño» (arriba a la izquierda).', choose: true },
+  { id: 'home', title: 'Inicio: tareas a un clic', text: 'Con este botón vuelves al inicio, donde están todas las tareas (unir, dividir, foliar, firmar, quitar fondo…) sin preparar la hoja.', target: '[data-tour="home"]' },
+  { id: 'doctools', title: 'Herramientas del documento', text: 'Tamaño de hoja, formato, foliado y organizar páginas están aquí arriba a la izquierda.', target: '[data-tour="doc-tools"]', only: 'desktop' },
+  { id: 'doctoolsm', title: 'Herramientas del documento', text: 'En «Documento» tienes el tamaño de hoja, el formato, el foliado y organizar páginas.', target: '[data-tour="doc-tools-m"]', only: 'mobile' },
   { id: 'import', title: '2 · Sube tus archivos', text: 'Aquí subes PDF, Word o imágenes. También puedes arrastrarlos directo sobre la hoja.', target: '[data-tour="import"]' },
   { id: 'image', title: '3 · Agrega imágenes', text: 'Con este botón pones fotos en la hoja actual. Luego las mueves, giras y recortas con el dedo o el mouse.', target: '[data-tour="image"]' },
   { id: 'text', title: '4 · Escribe texto', text: 'Crea un cuadro de texto en cualquier parte. Al tocarlo, arriba aparecen la tipografía, el tamaño y el color.', target: '[data-tour="text"]' },
   { id: 'pdfedit', title: '5 · Edita el texto de un PDF', text: 'Con «Editar PDF» activo, toca cualquier texto de un PDF importado y cámbialo con su misma tipografía.', target: '[data-tour="pdfedit"]' },
-  { id: 'rail', title: '6 · Tus herramientas', text: 'Aquí están las herramientas agrupadas: Archivo, Insertar, Editar y Documento. Las acciones simples (deshacer, copiar, formato) están en la barra de arriba.', target: '[data-tour-area="rail"]', only: 'desktop' },
+  { id: 'rail', title: '6 · Tus herramientas', text: 'Aquí están las herramientas agrupadas: Archivo, Insertar y Editar. Las acciones simples (deshacer, copiar, formato) están en la barra de arriba.', target: '[data-tour-area="rail"]', only: 'desktop' },
   { id: 'menu', title: '6 · Menú con todo', text: 'Este botón abre el menú lateral con todas las herramientas, las acciones de la hoja actual y el tema claro/oscuro. La barra de abajo siempre queda a la vista.', target: '[data-tour="menu"]', only: 'mobile' },
   { id: 'top', title: '7 · Barra superior', text: 'Deshacer, rehacer, copiar y pegar siempre están aquí. Al seleccionar un texto o una imagen aparecen sus opciones.', target: '[data-element-toolbar]' },
   { id: 'pages', title: '8 · Tus hojas', text: 'Desliza hacia arriba o abajo para pasar de hoja en hoja. Con los dedos puedes hacer zoom; abajo está el control de zoom.', target: '#editorContainer' },
   { id: 'theme', title: '9 · Claro u oscuro', text: 'Cambia entre el tema claro (de oficina), el oscuro o el automático.', target: '[data-tour="theme"]', only: 'desktop' },
-  { id: 'assistant', title: 'Tu asistente', text: 'Aprende de lo que haces, te sugiere el siguiente paso, te avisa si te sales de tu rutina y aplica presets que puedes deshacer. Está en el menú (☰) del celular.', target: '[data-tour="assistant"]' },
-  { id: 'export', title: '10 · Exporta', text: 'Cuando termines, descarga en PDF, PNG o JPG. ¡Listo! Puedes repetir este recorrido desde «Ayuda».', target: '[data-tour="export"]' },
+  { id: 'export', title: '10 · Exporta', text: 'Cuando termines, «Descargar» te da PDF, PNG o JPG, y «Compartir» lo manda por WhatsApp o correo. ¡Listo! Puedes repetir este recorrido desde «Ayuda».', target: '[data-tour="export"]' },
 ];
 
 const visible = (sel?: string): HTMLElement | null => {
@@ -123,7 +124,7 @@ export function GuidedTour({ open, onClose, engine, onOpenCanvas }: Props) {
       {rect && !big ? (
         <div
           className="fixed rounded-xl pointer-events-none transition-all duration-200"
-          style={{ left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(15,23,42,.62), 0 0 0 3px #3b82f6' }}
+          style={{ left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(15,23,42,.62), 0 0 0 3px #5b7fbd' }}
         />
       ) : (
         <div className="fixed inset-0 bg-slate-950/60 pointer-events-none" />
