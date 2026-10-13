@@ -117,7 +117,7 @@ export function HomeScreen({ open, onClose, onPick, onTour, canInstall, onInstal
         <footer className="shrink-0 border-t border-slate-800 bg-slate-950/30 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-4 gap-y-2.5">
           <p className="text-[11.5px] text-slate-400 leading-snug flex-1 basis-[200px] min-w-0">
             <b className="text-slate-200">Gratis</b> · <b className="text-slate-200">tus archivos nunca salen de tu dispositivo</b>
-            <span className="block text-[10.5px] text-slate-500 mt-0.5">Hecho por {SITE.author} · {SITE.name} © {new Date().getFullYear()}</span>
+            <span className="block text-[10.5px] text-slate-500 mt-0.5">Hecho por {SITE.author}</span>
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={onTour} title="Recorrido guiado" className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-slate-700 text-slate-200 hover:border-slate-500">
