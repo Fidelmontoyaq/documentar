@@ -24,6 +24,10 @@ export default defineConfig({
         background_color: '#ffffff',
         theme_color: '#ffffff',
         categories: ['productivity', 'utilities'],
+        screenshots: [
+          { src: '/screenshots/inicio-movil.png', sizes: '540x960', type: 'image/png', form_factor: 'narrow', label: 'Todas las tareas con un clic' },
+          { src: '/screenshots/editor-escritorio.png', sizes: '1280x720', type: 'image/png', form_factor: 'wide', label: 'Editor de documentos' },
+        ],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -35,6 +39,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,ico}'],
+        globIgnores: ['screenshots/**'],
       },
     }),
   ],
