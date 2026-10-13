@@ -88,10 +88,19 @@ export interface ToolbarState {
   shape: ShapeState | null;
 }
 
+export interface ConfirmRequest {
+  title: string;
+  text: string;
+  yes: string;
+  run: () => void;
+}
+
 /** Callbacks con los que el motor avisa a React de cambios de estado. */
 export interface DocumentEditorEngineListeners {
   /** Aviso corto para el usuario (no es un error). */
   onNotice?: (message: string) => void;
+  /** Pide al usuario confirmar una acción delicada (p. ej. borrar todas las hojas). */
+  onConfirm?: (req: ConfirmRequest) => void;
   /** El modo "editar texto del PDF" se activó o desactivó. */
   onPdfEditModeChange?: (on: boolean) => void;
   onPageCountChange?: (count: number) => void;
@@ -127,12 +136,14 @@ export interface PageInfo {
 export type PageScope = 'page' | 'all' | 'from' | 'until' | number[];
 
 export interface ExportOptions {
-  format: 'pdf' | 'png' | 'jpg';
+  format: 'pdf' | 'png' | 'jpg' | 'documentar';
   scope: 'page' | 'all';
   /** Multiplicador de resolución: 1 = tamaño exacto del lienzo en píxeles. */
   scale: number;
   /** Abre el menú de compartir del sistema en lugar de descargar. */
   share?: boolean | 'whatsapp';
+  /** PDF: guarda dentro el proyecto para poder volver a editarlo en Documentar. */
+  editable?: boolean;
 }
 
 /** Órdenes del motor que se pueden grabar y repetir (presets / macros). */
