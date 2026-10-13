@@ -23,7 +23,7 @@ export interface PdfRun {
   box: [number, number, number, number];
   edited?: boolean;
   /** Estilo con el que se editó por última vez. */
-  style?: { stack: string; color: string; bold: boolean; italic: boolean; underline: boolean; strike: boolean; fs: number; center: boolean };
+  style?: { stack: string; color: string; bold: boolean; italic: boolean; underline: boolean; strike: boolean; fs: number; center: boolean; right?: boolean };
 }
 
 export interface PdfFontInfo {
@@ -55,6 +55,56 @@ export function registerPdfDoc(id: string, doc: PDFDocumentProxy) {
 export function registerPdfPage(id: string, data: PdfPageData) {
   pages.set(id, data);
 }
+// Cola de lectura de texto: se procesa de a una página cuando el navegador está libre,
+// así importar 500 hojas no se queda esperando a leer todo el texto.
+const queue: (() => Promise<void>)[] = [];
+let running: Promise<void> | null = null;
+const idle = () => new Promise<void>((r) => ((window as unknown as { requestIdleCallback?: (cb: () => void, o?: object) => void }).requestIdleCallback ? (window as unknown as { requestIdleCallback: (cb: () => void, o?: object) => void }).requestIdleCallback(() => r(), { timeout: 300 }) : setTimeout(r, 16)));
+
+export function queuePageText(id: string, page: PDFPageProxy, viewport: { transform: number[]; scale: number; width: number; height: number }, docId: string, pageNum: number) {
+  // Mientras no se lee, la página existe sin texto (no editable todavía).
+  pages.set(id, { docId, pageNum, scale: viewport.scale, w: viewport.width, h: viewport.height, runs: [], fonts: {} });
+  queue.push(async () => {
+    try {
+      const data = await extractPageText(page, viewport, docId, pageNum);
+      const cur = pages.get(id);
+      if (cur) Object.assign(cur, data);
+    } catch (error) {
+      console.warn('No se pudo leer el texto de la página', pageNum, error);
+    }
+  });
+  if (!running) {
+    running = (async () => {
+      while (queue.length) {
+        await idle();
+        await queue.shift()!();
+      }
+      running = null;
+    })();
+  }
+}
+
+/** Espera a que termine la lectura del texto de todas las hojas (antes de editar texto del PDF). */
+/** Datos de texto de las hojas indicadas (para guardarlos dentro del proyecto). */
+export function exportPdfPages(ids: string[]): Record<string, PdfPageData> {
+  const out: Record<string, PdfPageData> = {};
+  for (const id of new Set(ids)) {
+    const d = pages.get(id);
+    if (d) out[id] = d;
+  }
+  return out;
+}
+export function importPdfPages(obj: Record<string, PdfPageData> | undefined | null) {
+  if (!obj) return;
+  for (const [id, d] of Object.entries(obj)) pages.set(id, d);
+}
+
+export const isPdfTextBusy = () => !!running;
+
+export async function whenPdfTextReady(): Promise<void> {
+  while (running) await running;
+}
+
 export function getPdfPage(id: string | undefined | null): PdfPageData | undefined {
   return id ? pages.get(id) : undefined;
 }

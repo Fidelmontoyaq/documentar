@@ -7,6 +7,7 @@
 import {
   getPdfPage,
   getPdfPageProxy,
+  isPdfTextBusy,
   matchPdfFont,
   newPdfId,
   registerPdfPage,
@@ -97,6 +98,50 @@ function coonsPatch(src: HTMLCanvasElement, box: Box): ImageData {
     }
   }
   return out;
+}
+
+/** Grosor medio del trazo de la letra (en «em»): sirve para reconocer la negrita cuando el nombre de la fuente no lo dice. */
+function measureStem(c: HTMLCanvasElement, box: Box, fs: number): number {
+  const [x0, y0, x1, y1] = clampBox(box, c.width, c.height);
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 4 || h < 4) return 0;
+  const d = c.getContext('2d', { willReadFrequently: true })!.getImageData(x0, y0, w, h).data;
+  const lum = new Float32Array(w * h);
+  let mn = 255, mx = 0;
+  for (let i = 0; i < w * h; i++) {
+    const l = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+    lum[i] = l;
+    if (l < mn) mn = l;
+    if (l > mx) mx = l;
+  }
+  if (mx - mn < 60) return 0;
+  const th = (mn + mx) / 2;
+  const dark = lum[0] < th; // texto claro sobre fondo oscuro si la esquina es oscura
+  const lens: number[] = [];
+  for (let y = Math.floor(h * 0.3); y < Math.floor(h * 0.75); y += 1) {
+    let run = 0;
+    for (let x = 0; x <= w; x++) {
+      const ink = x < w && (dark ? lum[y * w + x] > th : lum[y * w + x] < th);
+      if (ink) run++;
+      else if (run) { lens.push(run); run = 0; }
+    }
+  }
+  if (lens.length < 6) return 0;
+  lens.sort((a, b) => a - b);
+  return lens[Math.floor(lens.length / 2)] / fs;
+}
+
+/** Alineación del texto: centrado, a la derecha o a la izquierda, según su posición respecto al resto de la hoja. */
+function detectAlign(data: PdfPageData, run: PdfRun): 'left' | 'center' | 'right' {
+  const W = data.w;
+  if (Math.abs(run.x + run.w / 2 - W / 2) < W * 0.012 && run.w > W * 0.12) return 'center';
+  const rs = data.runs.filter((r) => r.w > W * 0.05);
+  if (rs.length < 2) return 'left';
+  const left = Math.min(...rs.map((r) => r.x));
+  const right = Math.max(...rs.map((r) => r.x + r.w));
+  const edge = run.x + run.w;
+  if (Math.abs(edge - right) < W * 0.012 && run.x > left + (right - left) * 0.2 && run.w < (right - left) * 0.7) return 'right';
+  return 'left';
 }
 
 const cleanCache = new Map<string, HTMLCanvasElement | null>();
@@ -219,6 +264,7 @@ interface Editing {
   infoBold: boolean;
   infoItalic: boolean;
   center: boolean;
+  right: boolean;
   /** El usuario eligió fuente/estilo a mano: ya no se decide solo. */
   manual: boolean;
   startText: string;
@@ -383,7 +429,7 @@ export class PdfEditController {
     if (!at) return;
     if (!run) {
       const d = getPdfPage(at.img.dataset.pdfId);
-      if (d && d.runs.length === 0) this.host.notify('Esta página no tiene texto seleccionable (parece una imagen escaneada).');
+      if (d && d.runs.length === 0) this.host.notify(isPdfTextBusy() ? 'Todavía se está leyendo el texto de las hojas. Intenta de nuevo en unos segundos.' : 'Esta página no tiene texto seleccionable (parece una imagen escaneada).');
       return;
     }
     e.preventDefault();
@@ -410,7 +456,11 @@ export class PdfEditController {
       data.runs.filter((r) => r.font === run.font && !r.edited).forEach((r) => [...r.text].forEach((c) => have.add(c)));
       const g = this.geom(page, img);
       const st = run.style;
-      const center = st ? st.center : Math.abs(run.x + run.w / 2 - data.w / 2) < data.w * 0.012 && run.w > data.w * 0.12;
+      const al = detectAlign(data, run);
+      const center = st ? st.center : al === 'center';
+      const right = st ? !!st.right : al === 'right';
+      const stem = match.bold ? 1 : measureStem(pageCanvas, run.box, run.fs);
+      const boldDetected = match.bold || stem > 0.118;
 
       const el = document.createElement('div');
       el.className = 'pdf-edit-overlay';
@@ -436,7 +486,7 @@ export class PdfEditController {
         fontStyle: st ? (st.italic ? 'italic' : 'normal') : 'normal',
         textDecoration: [st?.underline ? 'underline' : '', st?.strike ? 'line-through' : ''].filter(Boolean).join(' ') || 'none',
         lineHeight: `${(run.asc + run.desc) * fsCss}px`,
-        textAlign: center ? 'center' : 'left',
+        textAlign: center ? 'center' : right ? 'right' : 'left',
         minWidth: '4px',
         background: 'transparent',
       } as Partial<CSSStyleDeclaration>);
@@ -445,8 +495,8 @@ export class PdfEditController {
       const ed: Editing = {
         page, img, data, run, el, patch, have,
         fallback: match.fallback, fallbackLabel: match.label,
-        infoBold: match.bold, infoItalic: match.italic,
-        center, manual: !!st, startText: run.text, startSig: '', warned: false,
+        infoBold: boldDetected, infoItalic: match.italic,
+        center, right, manual: !!st, startText: run.text, startSig: '', warned: false,
         k: g.k, ox: g.ox, oy: g.oy,
       };
       this.editing = ed;
@@ -535,11 +585,13 @@ export class PdfEditController {
   }
 
   private embeddedOf(ed: Editing) {
+    // document.fonts.check() devuelve true aunque la fuente no exista; hay que mirar si realmente está cargada.
     try {
-      return document.fonts.check(`16px '${ed.run.font}'`);
-    } catch {
-      return false;
-    }
+      for (const f of document.fonts as unknown as Iterable<FontFace>) {
+        if (f.family.replace(/["']/g, '') === ed.run.font && f.status === 'loaded') return true;
+      }
+    } catch { /* sin soporte: se usa la fuente equivalente */ }
+    return false;
   }
 
   /** Coloca la capa para que su línea base coincida con la del texto original. */
@@ -559,6 +611,9 @@ export class PdfEditController {
     if (ed.center) {
       el.style.left = `${ed.ox + (ed.run.x + ed.run.w / 2) * ed.k}px`;
       el.style.transform = 'translateX(-50%)';
+    } else if (ed.right) {
+      el.style.left = `${ed.ox + (ed.run.x + ed.run.w) * ed.k}px`;
+      el.style.transform = 'translateX(-100%)';
     } else {
       el.style.left = `${ed.ox + ed.run.x * ed.k}px`;
       el.style.transform = 'none';
@@ -618,9 +673,10 @@ export class PdfEditController {
     } else if (cmd === 'foreColor' && val) {
       s.color = val;
       s.caretColor = val;
-    } else if (cmd === 'justifyLeft' || cmd === 'justifyCenter') {
+    } else if (cmd === 'justifyLeft' || cmd === 'justifyCenter' || cmd === 'justifyRight') {
       ed.center = cmd === 'justifyCenter';
-      s.textAlign = ed.center ? 'center' : 'left';
+      ed.right = cmd === 'justifyRight';
+      s.textAlign = ed.center ? 'center' : ed.right ? 'right' : 'left';
     }
     this.align(ed);
     ed.el.focus();
@@ -680,7 +736,7 @@ export class PdfEditController {
       const width = text ? ctx.measureText(text).width : 0;
       const run = ed.run;
       // Caja nueva del texto escrito (para tapar también lo que sobresalga y para futuras ediciones).
-      const nx0 = ed.center ? run.x + run.w / 2 - width / 2 : run.x;
+      const nx0 = ed.center ? run.x + run.w / 2 - width / 2 : ed.right ? run.x + run.w - width : run.x;
       const newBox: Box = [nx0 - 2, run.y - run.asc * fsImg, nx0 + width + 2, run.y + run.desc * fsImg];
       const cover = unionBox(run.box, newBox);
 
@@ -692,8 +748,8 @@ export class PdfEditController {
         ctx.font = spec;
         ctx.fillStyle = color;
         ctx.textBaseline = 'alphabetic';
-        ctx.textAlign = ed.center ? 'center' : 'left';
-        const drawX = ed.center ? run.x + run.w / 2 : run.x;
+        ctx.textAlign = ed.center ? 'center' : ed.right ? 'right' : 'left';
+        const drawX = ed.center ? run.x + run.w / 2 : ed.right ? run.x + run.w : run.x;
         ctx.fillText(text, drawX, run.y);
         if (underline || strike) {
           const th = Math.max(1, fsImg * 0.06);
@@ -706,7 +762,7 @@ export class PdfEditController {
         .map((r) =>
           r.id === run.id
             ? text
-              ? { ...r, text, x: nx0, w: width, fs: fsImg, box: cover, edited: true, style: { stack, color, bold, italic, underline, strike, fs: fsImg, center: ed.center } }
+              ? { ...r, text, x: nx0, w: width, fs: fsImg, box: cover, edited: true, style: { stack, color, bold, italic, underline, strike, fs: fsImg, center: ed.center, right: ed.right } }
               : null
             : r
         )

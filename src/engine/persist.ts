@@ -9,6 +9,7 @@ export interface SavedDoc {
   folio: Record<string, unknown> | null;
   savedAt: number;
   pages: number;
+  pdfPages?: Record<string, unknown>;
 }
 
 function open(): Promise<IDBDatabase> {

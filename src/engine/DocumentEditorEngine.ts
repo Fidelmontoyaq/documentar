@@ -6,6 +6,7 @@
 import { getCurve, setCurve as applyCurve, curveText, setCurveText, observeCurve, renderCurve, type CurveCfg } from './curvedText';
 import Sortable from 'sortablejs';
 import JSZip from 'jszip';
+import { PDFDocument } from 'pdf-lib';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import type {
@@ -28,6 +29,9 @@ import type {
 import { fileExtension, loadImageNaturalSize, readFileAsDataURL } from './fileUtils';
 import { processDocxFile, processPDFFile } from './fileProcessors';
 import { PdfEditController } from './pdfEdit';
+import { DocSearch } from './docSearch';
+import { exportPdfPages, importPdfPages, getPdfPage, getPdfPageProxy, newPdfId, registerPdfPage } from './pdfText';
+import { PROJECT_ATTACHMENT } from './fileProcessors';
 import { CAPTION_SPACE, computeLayout } from './imageLayouts';
 import { DEFAULT_FOLIO, folioPosition, folioText, renderFolioBadge, type FolioConfig } from './folio';
 
@@ -67,6 +71,9 @@ export class DocumentEditorEngine {
   private listeners: DocumentEditorEngineListeners;
 
   private pageCounter = 1;
+  /** Importación masiva: se pospone el recálculo (numeración, zoom, scroll) hasta terminar. */
+  private bulk = false;
+  private searcher: DocSearch | null = null;
   private floatingBoxCounter = 0;
   private activePage: HTMLElement | null = null;
   private sortableInstance: Sortable | null = null;
@@ -564,11 +571,13 @@ export class DocumentEditorEngine {
     const marginClass = isPdfPage ? 'p-0' : this.currentMargin.type === 'class' ? this.currentMargin.value : '';
     const sizeClass = ORIENTATION_SIZE_CLASSES[orientation];
     const marginInlineStyle =
-      !isPdfPage && this.currentMargin.type === 'custom' ? `padding:${this.currentMargin.value}cm;` : '';
+      !isPdfPage && this.currentMargin.type === 'custom'
+        ? `padding:${Math.max(0.8, +(this.currentMargin.value * 0.55).toFixed(2))}cm ${this.currentMargin.value}cm ${this.currentMargin.value}cm;`
+        : '';
 
     const headerHTML = isPdfPage
       ? ''
-      : `<div class="page-header has-placeholder min-h-[2.2rem] mb-4 outline-none focus:bg-transparent text-2xl font-bold text-black text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:font-normal" data-placeholder="Título sugerido" contenteditable="true" spellcheck="false"></div>`;
+      : `<div class="page-header has-placeholder min-h-[1.8rem] mb-2 outline-none focus:bg-transparent text-2xl font-bold text-black text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:font-normal" data-placeholder="Título sugerido" contenteditable="true" spellcheck="false"></div>`;
     const footerHTML = isPdfPage
       ? ''
       : `<div class="page-footer has-placeholder min-h-[1.4rem] mt-4 outline-none focus:bg-transparent text-black text-xs text-center empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400" data-placeholder="Pie de página (opcional)" contenteditable="true" spellcheck="false"></div>`;
@@ -642,6 +651,7 @@ export class DocumentEditorEngine {
         if (source.dataset.hf) newPageEl.dataset.hf = source.dataset.hf;
       }
     }
+    if (this.bulk) return newPageEl;
     this.updatePageNumbers();
     if (opts.activate !== false) this.setActivePage(newPageEl);
     if (opts.scroll !== false) newPageEl.scrollIntoView({ behavior: 'smooth' });
@@ -650,7 +660,7 @@ export class DocumentEditorEngine {
 
   deletePage(pageId: string) {
     if (this.pagesWrapper.querySelectorAll('.a4-page').length <= 1) {
-      this.listeners.onError?.('El documento debe contener al menos una página.');
+      this.requestClearAll();
       return;
     }
     document.getElementById(pageId)?.remove();
@@ -747,6 +757,25 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  /** Gira la hoja 90°: en hojas de PDF/imagen gira el contenido; en el resto, cambia vertical/horizontal. */
+  async rotatePage(pageId: string): Promise<void> {
+    const page = document.getElementById(pageId);
+    const img = page?.querySelector<HTMLImageElement>(':scope > img, :scope > .page-content > img');
+    if (!page || !img || page.dataset.pdfPage !== 'true') { this.togglePageOrientation(pageId); return; }
+    if (!img.complete) await img.decode().catch(() => undefined);
+    const c = document.createElement('canvas');
+    c.width = img.naturalHeight;
+    c.height = img.naturalWidth;
+    const ctx = c.getContext('2d')!;
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    img.src = c.toDataURL('image/jpeg', 0.92);
+    img.removeAttribute('data-pdf-id'); // el texto ya no coincide con la imagen girada
+    this.setPageOrientation(pageId, c.width > c.height ? 'landscape' : 'portrait');
+    this.commitNow();
+  }
+
   togglePageOrientation(pageId: string) {
     const current = this.getPageOrientation(pageId);
     this.setPageOrientation(pageId, current === 'portrait' ? 'landscape' : 'portrait');
@@ -777,10 +806,42 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
-  /** Elimina varias hojas a la vez (siempre queda al menos una). Se puede deshacer con Ctrl+Z. */
+  // ===================== BUSCAR (Ctrl+F) =====================
+  search(query: string): { total: number; index: number } {
+    this.searcher ??= new DocSearch(this.pagesWrapper);
+    const total = this.searcher.run(query);
+    return { total, index: this.searcher.index };
+  }
+  searchStep(dir: 1 | -1): { total: number; index: number } {
+    this.searcher?.step(dir);
+    return { total: this.searcher?.total ?? 0, index: this.searcher?.index ?? -1 };
+  }
+  searchClear() { this.searcher?.clear(); }
+
+  /** Pregunta si de verdad se quiere borrar todo (queda una hoja en blanco para empezar de nuevo). */
+  requestClearAll() {
+    const run = () => this.clearAllPages();
+    if (this.listeners.onConfirm) {
+      this.listeners.onConfirm({ title: '¿Borrar todas las hojas?', text: 'Se vaciará todo el documento y quedará una hoja en blanco para empezar de nuevo. Puedes deshacerlo con Ctrl+Z.', yes: 'Sí, borrar todo', run });
+    } else run();
+  }
+
+  clearAllPages() {
+    this.pdfEdit?.reset();
+    this.hideElementToolbar();
+    this.pagesWrapper.querySelectorAll('.a4-page').forEach((p) => p.remove());
+    this.activePage = null;
+    const page = this.addNewPage('', false, { scroll: false });
+    this.updatePageNumbers();
+    this.setActivePage(page);
+    this.commitNow();
+  }
+
+  /** Elimina varias hojas a la vez. Si son todas, pide confirmar y deja una hoja en blanco. Se puede deshacer con Ctrl+Z. */
   deletePages(ids: string[]) {
     const all = this.getPageIds();
-    const toDelete = ids.length >= all.length ? ids.filter((id) => id !== all.find((a) => ids.includes(a))) : ids;
+    if (ids.length >= all.length) { this.requestClearAll(); return; }
+    const toDelete = ids;
     toDelete.forEach((id) => document.getElementById(id)?.remove());
     this.updatePageNumbers();
     this.getActivePage();
@@ -899,9 +960,34 @@ export class DocumentEditorEngine {
       const fileGroup = { id: `grp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: file.name };
       try {
         if (ext === 'pdf') {
-          await processPDFFile(file, (pageHTML, orientation) =>
-            this.addNewPage(pageHTML, true, { orientation, fileGroup })
-          );
+          this.bulk = true;
+          let result: { project: string | null };
+          try {
+            result = await processPDFFile(
+              file,
+              (pageHTML, orientation) => this.addNewPage(pageHTML, true, { orientation, fileGroup, scroll: false, activate: false }),
+              (done, total) => {
+                if (total > 3 && (done % 3 === 0 || done === total)) {
+                  this.listeners.onLoadingChange?.({ show: true, title: 'Procesando Archivos', status: `${file.name}: hoja ${done} de ${total}…` });
+                }
+              }
+            );
+          } finally {
+            this.bulk = false;
+          }
+          if (result.project) {
+            this.loadProjectText(result.project);
+            this.listeners.onNotice?.('Este PDF fue guardado con Documentar: se abrió completo para seguir editándolo.');
+          } else {
+            this.updatePageNumbers();
+            this.setActivePage(this.pagesWrapper.querySelector<HTMLElement>('.a4-page[data-file-group="' + fileGroup.id + '"]'));
+          }
+        } else if (ext === 'documentar') {
+          const zip = await JSZip.loadAsync(await file.arrayBuffer());
+          const txt = await zip.file('project.json')?.async('string');
+          if (!txt) throw new Error('Proyecto vacío');
+          this.loadProjectText(txt);
+          this.listeners.onNotice?.('Proyecto abierto: puedes seguir editando todo.');
         } else if (ext === 'docx') {
           this.addNewPage(await processDocxFile(file), false, { fileGroup });
         }
@@ -1669,8 +1755,10 @@ export class DocumentEditorEngine {
     const onMove = (ev: PointerEvent) => {
       moved = Math.max(moved, Math.hypot(ev.clientX - startX, ev.clientY - startY));
       // Libre por TODA la hoja (no solo dentro de los márgenes).
-      let newLeft = Math.max(0, Math.min(startLeft + (ev.clientX - startX) / this.zoom, page.clientWidth - box.offsetWidth));
-      let newTop = Math.max(0, Math.min(startTop + (ev.clientY - startY) / this.zoom, page.clientHeight - box.offsetHeight - capExtra));
+      // Se puede sacar parte de la imagen de la hoja (queda un borde de 30 px siempre a la vista para poder agarrarla).
+      const KEEP = 30;
+      let newLeft = Math.max(KEEP - box.offsetWidth, Math.min(startLeft + (ev.clientX - startX) / this.zoom, page.clientWidth - KEEP));
+      let newTop = Math.max(KEEP - box.offsetHeight, Math.min(startTop + (ev.clientY - startY) / this.zoom, page.clientHeight - KEEP));
       if (targets && !ev.altKey) {
         const sx = this.snapAxis(newLeft, box.offsetWidth, targets.xs);
         const sy = this.snapAxis(newTop, box.offsetHeight, targets.ys);
@@ -1730,8 +1818,8 @@ export class DocumentEditorEngine {
         const growRight = dir.includes('e');
         const growBottom = dir.includes('s');
         let scale = (growRight ? startWidth + dx : startWidth - dx) / startWidth;
-        const maxW = growRight ? pageW - startLeft : startLeft + startWidth;
-        const maxH = growBottom ? pageH - startTop : startTop + startHeight;
+        const maxW = pageW * 4;
+        const maxH = pageH * 4;
         scale = Math.min(scale, maxW / startWidth, maxH / startHeight);
         scale = Math.max(scale, MIN / startWidth, MIN / startHeight);
         newWidth = startWidth * scale;
@@ -1739,14 +1827,14 @@ export class DocumentEditorEngine {
         newLeft = growRight ? startLeft : startLeft + (startWidth - newWidth);
         newTop = growBottom ? startTop : startTop + (startHeight - newHeight);
       } else {
-        if (dir.includes('e')) newWidth = clamp(startWidth + dx, MIN, pageW - startLeft);
+        if (dir.includes('e')) newWidth = clamp(startWidth + dx, MIN, pageW * 4);
         if (dir.includes('w')) {
-          newWidth = clamp(startWidth - dx, MIN, startLeft + startWidth);
+          newWidth = clamp(startWidth - dx, MIN, pageW * 4);
           newLeft = startLeft + (startWidth - newWidth);
         }
-        if (dir.includes('s')) newHeight = clamp(startHeight + dy, MIN, pageH - startTop);
+        if (dir.includes('s')) newHeight = clamp(startHeight + dy, MIN, pageH * 4);
         if (dir.includes('n')) {
-          newHeight = clamp(startHeight - dy, MIN, startTop + startHeight);
+          newHeight = clamp(startHeight - dy, MIN, pageH * 4);
           newTop = startTop + (startHeight - newHeight);
         }
       }
@@ -2686,6 +2774,44 @@ export class DocumentEditorEngine {
     this.commitNow();
   }
 
+  /** Imagen de fondo de la hoja de PDF activa (para sacar logos y objetos de ella). */
+  getPageBackdrop(): { pageId: string; src: string } | null {
+    const page = this.getActivePage();
+    const img = page?.querySelector<HTMLImageElement>('img[data-pdf-id]');
+    if (!page || !img) return null;
+    return { pageId: page.id, src: img.src };
+  }
+
+  /** Aplica una extracción: la hoja queda con el hueco rellenado y el objeto sale como imagen suelta, movible. */
+  async applyExtractedObject(pageId: string, filledSrc: string, obj: { src: string; x: number; y: number; w: number; h: number }, imgW: number, imgH: number) {
+    const page = document.getElementById(pageId);
+    const img = page?.querySelector<HTMLImageElement>('img[data-pdf-id]');
+    if (!page || !img) return;
+    const bw = img.clientWidth, bh = img.clientHeight;
+    const k = Math.min(bw / imgW, bh / imgH);
+    const ox = img.offsetLeft + (bw - imgW * k) / 2;
+    const oy = img.offsetTop + (bh - imgH * k) / 2;
+    // El texto que estaba debajo del objeto ya no existe: se quita de la lista editable.
+    const data = getPdfPage(img.dataset.pdfId);
+    if (data) {
+      const s = data.w / imgW;
+      const hit = (b: number[]) => !(b[2] < obj.x * s || b[0] > (obj.x + obj.w) * s || b[3] < obj.y * s || b[1] > (obj.y + obj.h) * s);
+      const nid = newPdfId('pg');
+      registerPdfPage(nid, { ...data, runs: data.runs.filter((r) => !hit(r.box)) });
+      img.dataset.pdfId = nid;
+    }
+    img.src = filledSrc;
+    const left = Math.round(ox + obj.x * k), top = Math.round(oy + obj.y * k);
+    const width = Math.max(20, Math.round(obj.w * k)), height = Math.max(20, Math.round(obj.h * k));
+    const box = this.insertFloatingImageAt(page, obj.src, left, top, width, height, obj.w / obj.h);
+    box.dataset.natW = String(obj.w);
+    box.dataset.natH = String(obj.h);
+    box.dataset.signature = '1'; // no cuenta como imagen para «Ordenar» y no lleva pie de foto
+    this.setActivePage(page);
+    this.selectFloatingBox(box);
+    this.commitNow();
+  }
+
   /** Texto curvo del cuadro de texto seleccionado (null si no hay o es recto). */
   getCurveState(): { cfg: CurveCfg | null; text: string } | null {
     const box = this.getSelectedBox();
@@ -2870,6 +2996,26 @@ export class DocumentEditorEngine {
   }
 
   /** Foto completa del documento (con las imágenes dentro) para guardarla en IndexedDB. */
+  /** Texto de las hojas de PDF que usa el documento (se guarda junto al HTML para poder seguir editando el texto). */
+  pdfPagesFor(html: string): Record<string, unknown> {
+    const ids = [...html.matchAll(/data-pdf-id="([^"]+)"/g)].map((m) => m[1]);
+    return exportPdfPages(ids) as unknown as Record<string, unknown>;
+  }
+
+  /** Proyecto completo como texto (formato propio .documentar y PDF editable). */
+  exportProjectText(): string {
+    const snap = this.exportSnapshot();
+    return JSON.stringify({ v: 1, app: 'documentar', html: snap.html, font: snap.font, folio: this.folioCfg, pdfPages: this.pdfPagesFor(snap.html) });
+  }
+
+  loadProjectText(text: string) {
+    const p = JSON.parse(text) as { html: string; font?: string; folio?: FolioConfig; pdfPages?: Record<string, never> };
+    if (!p || typeof p.html !== 'string') throw new Error('Proyecto no válido');
+    importPdfPages(p.pdfPages);
+    this.loadSnapshot(p.html, p.font);
+    if (p.folio && (p.folio as { enabled?: boolean }).enabled) this.setFolioConfig({ ...DEFAULT_FOLIO, ...p.folio });
+  }
+
   exportSnapshot(): { html: string; font: string; pages: number } {
     if (this.commitTimer) this.commitNow();
     const snap = this.history[this.historyIndex] ?? this.serializeState();
@@ -3213,6 +3359,14 @@ export class DocumentEditorEngine {
    */
   async exportDocument(opts: ExportOptions): Promise<void> {
     await this.pdfEdit.commit();
+    if (opts.format === 'documentar') {
+      const zip = new JSZip();
+      zip.file('project.json', this.exportProjectText());
+      zip.file('LEEME.txt', 'Proyecto de Documentar. Ábrelo con «Subir» dentro de la aplicación para seguir editando.');
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+      await this.deliverBlob(blob, `Proyecto_${Date.now()}.documentar`, opts.share);
+      return;
+    }
     const allPages = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page'));
     const pages = opts.scope === 'page' ? allPages.filter((p) => p === this.getActivePage()) : allPages;
     if (!pages.length) return;
@@ -3240,7 +3394,36 @@ export class DocumentEditorEngine {
     this.busy = true;
 
     try {
-      const render = async (page: HTMLElement) => {
+      // Hojas de PDF sin editar: se vuelve a dibujar desde el PDF original en alta resolución (texto nítido).
+      const hiRes = async (page: HTMLElement): Promise<() => void> => {
+        const img = page.querySelector<HTMLImageElement>('img[data-pdf-id]');
+        const data = getPdfPage(img?.dataset.pdfId);
+        if (!img || !data || data.runs.some((r) => r.edited)) return () => undefined;
+        try {
+          const proxy = await getPdfPageProxy(data);
+          if (!proxy) return () => undefined;
+          const base = proxy.getViewport({ scale: 1 });
+          const cap = pages.length > 200 ? 0 : pages.length > 60 ? 2 : 3.2;
+          const k = Math.min(cap, 2600 / Math.max(base.width, base.height));
+          if (k <= data.scale * 1.15) return () => undefined;
+          const vp = proxy.getViewport({ scale: k });
+          const c = document.createElement('canvas');
+          c.width = Math.round(vp.width);
+          c.height = Math.round(vp.height);
+          const ctx = c.getContext('2d')!;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, c.width, c.height);
+          await proxy.render({ canvasContext: ctx, viewport: vp }).promise;
+          const prev = img.src;
+          img.src = c.toDataURL('image/jpeg', 0.93);
+          await img.decode().catch(() => undefined);
+          c.width = c.height = 0;
+          return () => { img.src = prev; };
+        } catch {
+          return () => undefined;
+        }
+      };
+      const renderRaw = async (page: HTMLElement) => {
         const s = Math.max(0.25, Math.min(opts.scale, 8000 / Math.max(page.offsetWidth, page.offsetHeight)));
         return html2canvas(page, {
           scale: s,
@@ -3250,6 +3433,10 @@ export class DocumentEditorEngine {
           windowWidth: Math.max(page.scrollWidth, page.offsetWidth),
           windowHeight: Math.max(page.scrollHeight, page.offsetHeight),
         });
+      };
+      const render = async (page: HTMLElement) => {
+        const restore = await hiRes(page);
+        try { return await renderRaw(page); } finally { restore(); }
       };
       const stamp = Date.now();
 
@@ -3268,7 +3455,19 @@ export class DocumentEditorEngine {
           if (i > 0) pdf.addPage([w, h], w > h ? 'l' : 'p');
           pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, w, h);
         }
-        await this.deliverBlob(pdf.output('blob'), `Documento_${stamp}.pdf`, opts.share);
+        let out: Blob = pdf.output('blob');
+        if (opts.editable !== false) {
+          // El proyecto va adjunto dentro del PDF: al volver a subirlo, se abre completo para seguir editando.
+          try {
+            this.listeners.onLoadingChange?.({ show: true, title: 'Exportando PDF', status: 'Guardando el proyecto editable dentro del PDF…' });
+            const doc = await PDFDocument.load(await out.arrayBuffer());
+            await doc.attach(new TextEncoder().encode(this.exportProjectText()), PROJECT_ATTACHMENT, { mimeType: 'application/json', description: 'Proyecto editable de Documentar' });
+            out = new Blob([new Uint8Array(await doc.save({ useObjectStreams: false }))], { type: 'application/pdf' });
+          } catch (err) {
+            console.warn('No se pudo incrustar el proyecto editable', err);
+          }
+        }
+        await this.deliverBlob(out, `Documento_${stamp}.pdf`, opts.share);
       } else {
         const mime = opts.format === 'png' ? 'image/png' : 'image/jpeg';
         const toBlob = (c: HTMLCanvasElement) =>
