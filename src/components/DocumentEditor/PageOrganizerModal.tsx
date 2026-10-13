@@ -19,6 +19,16 @@ import {
   LayoutGrid,
   Grid2x2,
   Grid3x3,
+  ArrowDownAZ,
+  ArrowUpDown,
+  Shuffle,
+  Replace,
+  RotateCw,
+  ZoomIn,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+  Eraser,
 } from 'lucide-react';
 import type { DocumentEditorEngine } from '../../engine/DocumentEditorEngine';
 import { fileExtension } from '../../engine/fileUtils';
@@ -48,16 +58,28 @@ const PALETTE = [
 const NO_GROUP = { border: 'border-slate-700', text: 'text-slate-400', bg: 'bg-slate-600' };
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
-/** Miniatura de una hoja: el motor construye el clon escalado y aquí solo se monta. */
+/** Miniatura de una hoja: se construye solo cuando está a la vista (con 500 hojas no se dibuja todo de golpe). */
 function Thumb({ engine, id, version, width }: { engine: DocumentEditorEngine; id: string; version: number; width: number }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [seen, setSeen] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const thumb = engine.buildPageThumbnail(id, width);
-    el.replaceChildren(...(thumb ? [thumb] : []));
-  }, [engine, id, version, width]);
-  return <div ref={ref} className="pointer-events-none" />;
+    const io = new IntersectionObserver(([e]) => setSeen(e.isIntersecting), { rootMargin: '400px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (!seen) { el.replaceChildren(); return; }
+    const t = setTimeout(() => {
+      const thumb = engine.buildPageThumbnail(id, width);
+      el.replaceChildren(...(thumb ? [thumb] : []));
+    }, 30);
+    return () => clearTimeout(t);
+  }, [engine, id, version, width, seen]);
+  return <div ref={ref} className="pointer-events-none bg-white" style={{ minHeight: Math.round(width * 1.3) }} />;
 }
 
 /**
@@ -81,6 +103,14 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
   const [viewMode, setViewMode] = useState<ViewMode>('medium');
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [dropHint, setDropHint] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [fileDragId, setFileDragId] = useState<string | null>(null);
+  const [fileOver, setFileOver] = useState<string | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const insertInputRef = useRef<HTMLInputElement>(null);
+  const pendingReplace = useRef<string[]>([]);
+  const pendingInsert = useRef<string | null>(null);
 
   const lastClicked = useRef<string | null>(null);
   const dragging = useRef<string[]>([]);
@@ -284,8 +314,104 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
 
   const handleAddFiles = async (files: File[]) => {
     if (!engine || !files.length) return;
+    setBusy('Agregando archivos…');
     await engine.handleFileSelect(files, '1');
+    setBusy(null);
     refresh();
+  };
+
+  /** Importa archivos y deja sus hojas justo después de `afterId` (o al inicio si es null). */
+  const addFilesAt = async (files: File[], afterId: string | null, remove: string[] = []) => {
+    if (!engine || !files.length) return;
+    const before = engine.getPageIds();
+    setBusy(remove.length ? 'Reemplazando…' : 'Agregando archivos…');
+    await engine.handleFileSelect(files, '1');
+    const after = engine.getPageIds();
+    const fresh = after.filter((id) => !before.includes(id));
+    const rest = before.filter((id) => !remove.includes(id));
+    let at: number;
+    if (remove.length) {
+      const firstIdx = Math.min(...remove.map((r) => before.indexOf(r)));
+      at = before.slice(0, firstIdx).filter((x) => !remove.includes(x)).length;
+    } else at = afterId === null ? 0 : rest.indexOf(afterId) + 1;
+    if (at < 0) at = rest.length;
+    const order = [...rest.slice(0, at), ...fresh, ...rest.slice(at)];
+    // Las hojas de los archivos nuevos que no son «fresh» (p. ej. la hoja en blanco inicial que se retira) ya no existen.
+    engine.reorderPages(order.filter((id) => after.includes(id)));
+    if (remove.length) engine.deletePages(remove.filter((id) => after.includes(id)));
+    setBusy(null);
+    refresh();
+    setSelected(fresh);
+  };
+
+  // ----- archivos (grupos) -----
+  const files = useMemo(() => {
+    const out: { key: string; groupId: string | null; label: string; ids: string[] }[] = [];
+    ids.forEach((id) => {
+      const g = groupsById.get(id);
+      const key = g?.groupId ?? '__none';
+      let f = out.find((x) => x.key === key);
+      if (!f) { f = { key, groupId: g?.groupId ?? null, label: g?.label ?? 'Hojas del documento', ids: [] }; out.push(f); }
+      f.ids.push(id);
+    });
+    return out;
+  }, [ids, groupsById]);
+
+  const applyFileOrder = (order: typeof files) => {
+    if (!engine) return;
+    const next = order.flatMap((f) => f.ids);
+    setIds(next);
+    engine.reorderPages(next);
+    refresh();
+  };
+  const sortFiles = (mode: 'az' | 'reverse' | 'weave') => {
+    if (mode === 'az') applyFileOrder([...files].sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true })));
+    else if (mode === 'reverse') applyFileOrder([...files].reverse());
+    else {
+      // 1-1 2-2: una hoja de cada archivo por vuelta (útil para unir anverso y reverso escaneados).
+      const max = Math.max(...files.map((f) => f.ids.length));
+      const next: string[] = [];
+      for (let i = 0; i < max; i++) files.forEach((f) => f.ids[i] && next.push(f.ids[i]));
+      setIds(next);
+      engine?.reorderPages(next);
+      refresh();
+    }
+  };
+  const moveFile = (key: string, dir: -1 | 1) => {
+    const i = files.findIndex((f) => f.key === key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= files.length) return;
+    const next = [...files];
+    [next[i], next[j]] = [next[j], next[i]];
+    applyFileOrder(next);
+  };
+  const dropFileOn = (targetKey: string) => {
+    if (!fileDragId || fileDragId === targetKey) return;
+    const from = files.find((f) => f.key === fileDragId);
+    if (!from) return;
+    const rest = files.filter((f) => f.key !== fileDragId);
+    const at = rest.findIndex((f) => f.key === targetKey);
+    applyFileOrder([...rest.slice(0, at), from, ...rest.slice(at)]);
+  };
+  const removeFile = (ids2: string[]) => {
+    if (!engine) return;
+    engine.deletePages(ids2);
+    refresh();
+    setSelected([]);
+    showUndoToast(ids2.length);
+  };
+  const rotatePage = async (id: string) => {
+    if (!engine) return;
+    await engine.rotatePage(id);
+    refresh();
+  };
+  const startReplace = (targets: string[]) => {
+    pendingReplace.current = targets;
+    replaceInputRef.current?.click();
+  };
+  const startInsert = (afterId: string | null) => {
+    pendingInsert.current = afterId;
+    insertInputRef.current?.click();
   };
 
   // ----- arrastrar y soltar hojas: snapshot fijo de posiciones al iniciar, para que la
@@ -313,7 +439,7 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       const badge = document.createElement('div');
       badge.textContent = label;
       badge.style.cssText =
-        'position:fixed;top:-200px;padding:8px 14px;background:#3f63a6;color:#fff;border-radius:8px;font:600 13px sans-serif;';
+        'position:fixed;top:-200px;padding:8px 14px;background:#4a5aa8;color:#fff;border-radius:8px;font:600 13px sans-serif;';
       document.body.appendChild(badge);
       e.dataTransfer.setDragImage(badge, 20, 20);
       setTimeout(() => badge.remove(), 0);
@@ -502,6 +628,14 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
             if (files.length) void handleAddFiles(files);
           }}
         />
+        <input ref={replaceInputRef} type="file" accept=".pdf,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={(e) => {
+          const f = Array.from(e.target.files ?? []); e.target.value = '';
+          if (f.length) void addFilesAt(f, null, pendingReplace.current);
+        }} />
+        <input ref={insertInputRef} type="file" multiple accept=".pdf,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={(e) => {
+          const f = Array.from(e.target.files ?? []); e.target.value = '';
+          if (f.length) void addFilesAt(f, pendingInsert.current);
+        }} />
         <span className="w-px h-6 bg-slate-700 mx-1" />
         <button type="button" className={tb} onClick={handleUndo} disabled={!history.canUndo} title="Deshacer (Ctrl+Z)">
           <Undo2 className="w-3.5 h-3.5" /> Deshacer
@@ -536,13 +670,20 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
         <button type="button" className={`${tb} hover:!bg-rose-700`} disabled={none} onClick={deleteSelected}>
           <Trash2 className="w-3.5 h-3.5" /> Eliminar
         </button>
+        <button type="button" className={tb} disabled={none} onClick={() => startReplace(group)} title="Reemplaza las hojas marcadas por otro archivo u hoja, en el mismo lugar">
+          <Replace className="w-3.5 h-3.5" /> Reemplazar
+        </button>
+        <button type="button" className={`${tb} hover:!bg-rose-700`} onClick={() => engine?.requestClearAll()} title="Borrar todas las hojas y empezar de nuevo">
+          <Eraser className="w-3.5 h-3.5" /> Vaciar todo
+        </button>
         <span className="ml-auto text-xs text-slate-400">
           {group.length} de {ids.length} seleccionadas
         </span>
       </div>
 
+      <div className="flex-1 min-h-0 flex">
       <div
-        className="flex-1 overflow-y-auto p-3 md:p-6 relative"
+        className="flex-1 min-w-0 overflow-y-auto p-3 md:p-6 relative"
         onDragOver={handleGridDragOver}
         onDrop={(e) => void handleGridDrop(e)}
         onDragEnter={handleGridDragEnter}
@@ -652,7 +793,7 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                       engine.scrollToPage(id);
                       onClose();
                     }}
-                    className={`relative shrink-0 select-none cursor-grab active:cursor-grabbing transition-all duration-150 ${
+                    className={`group relative shrink-0 select-none cursor-grab active:cursor-grabbing transition-all duration-150 ${
                       draggingIds.includes(id) ? 'thumb-dragging' : ''
                     }`}
                   >
@@ -674,10 +815,25 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                     >
                       {isSel ? <CheckSquare className="w-4 h-4 text-amber-400" /> : <Square className="w-4 h-4 text-slate-300" />}
                     </span>
+                    <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity max-md:opacity-100">
+                      {([
+                        ['Ver grande', ZoomIn, () => setPreviewId(id)],
+                        ['Girar la hoja', RotateCw, () => void rotatePage(id)],
+                        ['Reemplazar esta hoja', Replace, () => startReplace([id])],
+                        ['Eliminar', Trash2, () => removeFile([id])],
+                      ] as const).map(([t, Ic, fn]) => (
+                        <button key={t} type="button" title={t} onClick={(e) => { e.stopPropagation(); fn(); }} onMouseDown={(e) => e.stopPropagation()} className="w-6 h-6 rounded-md flex items-center justify-center bg-slate-950/90 border border-slate-500 text-slate-100 hover:bg-slate-700">
+                          <Ic className="w-3.5 h-3.5" />
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" title="Insertar un archivo después de esta hoja" onClick={(e) => { e.stopPropagation(); startInsert(id); }} onMouseDown={(e) => e.stopPropagation()} className="absolute -right-5 top-[40%] w-7 h-7 rounded-full flex items-center justify-center bg-slate-950 border-2 border-slate-400 text-white opacity-0 group-hover:opacity-100 hover:!bg-slate-700 z-10 max-md:hidden">
+                      <Plus className="w-4 h-4" />
+                    </button>
                     {broken && (
                       <span
                         title={`"${label}" quedó dividido entre varios grupos de hojas`}
-                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center bg-slate-950 border-2 border-orange-400 shadow-lg"
+                        className="absolute bottom-7 left-1.5 w-6 h-6 rounded-md flex items-center justify-center bg-slate-950 border-2 border-orange-400 shadow-lg"
                       >
                         <SplitSquareHorizontal className="w-3.5 h-3.5 text-orange-400" />
                       </span>
@@ -689,6 +845,60 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
             })}
         </div>
       </div>
+
+      {/* Archivos (como en iLovePDF): cada color es un archivo; se reordenan, se reemplazan o se quitan completos. */}
+      <aside className="hidden md:flex w-[300px] shrink-0 flex-col border-l border-slate-800 bg-slate-900/60">
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-white">Archivos <span className="text-slate-500 font-normal">· {files.length}</span></h3>
+          <button type="button" onClick={() => fileInputRef.current?.click()} title="Agregar archivos" className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: '#4a5aa8' }}><Plus className="w-4 h-4" /></button>
+        </div>
+        <div className="px-3 pb-2 flex gap-1.5">
+          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('az')} title="Ordenar los archivos por nombre (A→Z)"><ArrowDownAZ className="w-3.5 h-3.5" /> A-Z</button>
+          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('reverse')} title="Invertir el orden de los archivos"><ArrowUpDown className="w-3.5 h-3.5" /> Invertir</button>
+          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('weave')} title="Intercalar: 1 hoja de cada archivo, por turnos (1-1, 2-2…)"><Shuffle className="w-3.5 h-3.5" /> 1-1 2-2</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
+          {files.map((f, i) => {
+            const c = (f.groupId && colorByGroup.get(f.groupId)) || NO_GROUP;
+            return (
+              <div
+                key={f.key}
+                draggable
+                onDragStart={() => setFileDragId(f.key)}
+                onDragEnd={() => { setFileDragId(null); setFileOver(null); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setFileOver(f.key); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropFileOn(f.key); setFileDragId(null); setFileOver(null); }}
+                className={`group rounded-lg border-l-[6px] border border-slate-700 bg-slate-800/70 px-2.5 py-2 cursor-grab active:cursor-grabbing ${c.border} ${fileOver === f.key && fileDragId !== f.key ? 'ring-2 ring-white/70' : ''}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <GripVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span className={`text-[11px] font-bold ${c.text} shrink-0`}>{String.fromCharCode(65 + (i % 26))}</span>
+                  <span className="text-xs text-slate-100 truncate flex-1" title={f.label}>{f.label}</span>
+                  <span className="text-[10px] text-slate-400 shrink-0">{f.ids.length} h.</span>
+                </div>
+                <div className="flex items-center gap-1 mt-1.5">
+                  <button type="button" onClick={() => setSelected(f.ids)} title="Marcar sus hojas" className="px-2 py-1 rounded-md text-[10px] text-slate-300 hover:bg-slate-700 border border-slate-700">Marcar</button>
+                  <button type="button" onClick={() => startReplace(f.ids)} title="Reemplazar este archivo por otro, en el mismo lugar" className="px-2 py-1 rounded-md text-[10px] text-slate-300 hover:bg-slate-700 border border-slate-700 flex items-center gap-1"><Replace className="w-3 h-3" />Reemplazar</button>
+                  <span className="flex-1" />
+                  <button type="button" disabled={i === 0} onClick={() => moveFile(f.key, -1)} title="Subir" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                  <button type="button" disabled={i === files.length - 1} onClick={() => moveFile(f.key, 1)} title="Bajar" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+                  <button type="button" onClick={() => removeFile(f.ids)} title="Quitar este archivo" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-rose-700"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            );
+          })}
+          {!files.length && <p className="text-xs text-slate-500 px-1">Aún no hay archivos. Pulsa + para subir un PDF, Word o imágenes.</p>}
+        </div>
+      </aside>
+      </div>
+
+      {busy && <div className="absolute inset-0 z-50 bg-slate-950/70 flex items-center justify-center text-sm text-white"><span className="px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-600">{busy}</span></div>}
+      {previewId && engine && (
+        <div className="absolute inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4" onClick={() => setPreviewId(null)}>
+          <div className="max-h-full overflow-auto rounded-lg shadow-2xl" ref={(el) => { if (el && !el.firstChild) { const t = engine.buildPageThumbnail(previewId, Math.min(760, window.innerWidth - 40)); if (t) el.appendChild(t); } }} />
+          <button type="button" className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"><X className="w-5 h-5" /></button>
+        </div>
+      )}
 
       {marquee && (
         <div

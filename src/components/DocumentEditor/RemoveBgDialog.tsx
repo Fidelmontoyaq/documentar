@@ -29,7 +29,9 @@ interface Props {
   /** Recibe el PNG con el fondo transparente. */
   onApply: (dataUrl: string, w: number, h: number) => void;
   /** 'bg' = quitar fondo (por defecto) · 'object' = quitar un objeto y rellenar el hueco. */
-  mode?: 'bg' | 'object';
+  mode?: 'bg' | 'object' | 'extract';
+  /** Modo «extract»: devuelve la hoja con el hueco rellenado y el objeto recortado aparte. */
+  onExtract?: (r: { filled: string; w: number; h: number; obj: { src: string; x: number; y: number; w: number; h: number } }) => void;
 }
 
 type Tool = 'auto' | 'hard' | 'wand' | 'brush' | 'hand';
@@ -51,8 +53,9 @@ const BG_STYLE: Record<Bg, React.CSSProperties> = {
 };
 
 /** Ventana para quitar el fondo de una imagen (varita, fondo liso, pincel, IA) y dejarla lista como sticker. */
-export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Props) {
-  const isObj = mode === 'object';
+export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg', onExtract }: Props) {
+  const isObj = mode === 'object' || mode === 'extract';
+  const isExtract = mode === 'extract';
   const refColor = useRef<Rgb | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -306,6 +309,31 @@ export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Pro
     const mi = miRef.current;
     const cv = canvasRef.current;
     if (!mi || !cv) return;
+    if (isExtract && onExtract) {
+      const w = mi.w, h = mi.h;
+      const filledC = document.createElement('canvas');
+      filledC.width = w; filledC.height = h;
+      filledC.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(inpaintObject(mi)), w, h), 0, 0);
+      // Objeto: lo marcado, con su opacidad; recortado a su tamaño.
+      const od = new Uint8ClampedArray(mi.rgba);
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const a = Math.round((1 - mi.mask[i] / 255) * mi.origAlpha[i]);
+        od[i * 4 + 3] = a;
+        if (a > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      if (x1 < 0) { setMsg('Marca primero el objeto que quieres sacar (con el pincel o la varita).'); return; }
+      const full = document.createElement('canvas');
+      full.width = w; full.height = h;
+      full.getContext('2d')!.putImageData(new ImageData(od, w, h), 0, 0);
+      const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+      const oc = document.createElement('canvas');
+      oc.width = cw; oc.height = ch;
+      oc.getContext('2d')!.drawImage(full, x0, y0, cw, ch, 0, 0, cw, ch);
+      onExtract({ filled: filledC.toDataURL('image/jpeg', 0.93), w, h, obj: { src: oc.toDataURL('image/png'), x: x0, y: y0, w: cw, h: ch } });
+      return;
+    }
     if (isObj) {
       const out = new ImageData(new Uint8ClampedArray(inpaintObject(mi)), mi.w, mi.h);
       const c = document.createElement('canvas');
@@ -361,7 +389,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Pro
       {/* Lienzo de trabajo */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-800 bg-slate-900">
-          <h2 className="text-sm font-bold text-white mr-auto">{isObj ? 'Quitar objeto' : 'Quitar fondo'}</h2>
+          <h2 className="text-sm font-bold text-white mr-auto">{isExtract ? 'Extraer objeto' : isObj ? 'Quitar objeto' : 'Quitar fondo'}</h2>
           <button type="button" className={iconBtn} title="Deshacer (Ctrl+Z)" disabled={!canUndo} onClick={undo}><Undo2 className="w-4 h-4" /></button>
           <button type="button" className={iconBtn} title="Rehacer" disabled={!canRedo} onClick={redo}><Redo2 className="w-4 h-4" /></button>
           <button type="button" className={iconBtn} title="Volver a la imagen original" onClick={reset}><RotateCcw className="w-4 h-4" /></button>
@@ -416,6 +444,9 @@ export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Pro
             {tabBtn('hand', 'Mover', <Hand className="w-4 h-4" />)}
           </div>
 
+          {isExtract && (
+            <p className="text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700 rounded-lg p-2">Marca el logo u objeto de la hoja (pincel inteligente o varita). Al terminar, sale como imagen aparte que puedes mover, achicar o borrar, y el hueco se rellena con el color del fondo.</p>
+          )}
           {tool === 'auto' && isObj && (
             <div className="space-y-2.5">
               <p className="text-[11px] text-slate-400">La IA marca el objeto principal de la foto para quitarlo. Puedes corregir la marca con el pincel.</p>
@@ -541,7 +572,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg' }: Pro
         </div>
         <div className="p-3 border-t border-slate-800 flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Cancelar</button>
-          <button type="button" disabled={!ready || !!ai} onClick={apply} className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">{isObj ? 'Quitar objeto' : 'Aplicar'}</button>
+          <button type="button" disabled={!ready || !!ai} onClick={apply} className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">{isExtract ? 'Extraer objeto' : isObj ? 'Quitar objeto' : 'Aplicar'}</button>
         </div>
       </aside>
     </div>

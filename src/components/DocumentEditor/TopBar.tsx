@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SlidersHorizontal, Hash, LayoutGrid, Share2, ChevronDown, Keyboard } from 'lucide-react';
+import { SlidersHorizontal, Hash, LayoutGrid, Share2, ChevronDown, Keyboard, Search } from 'lucide-react';
 import { LogoMark, PageSizeIcon, RemoveBgIcon } from './icons';
 import { SITE } from '../../engine/siteConfig';
 
@@ -11,6 +11,7 @@ interface Props {
   onOrganize: () => void;
   onRemoveBg: () => void;
   onShortcuts: () => void;
+  onSearch: () => void;
   onShare: () => void;
   folioActive: boolean;
   formatActive: boolean;
@@ -30,7 +31,7 @@ export function TopBar(p: Props) {
   return (
     <header data-top-bar data-keep-selection className="relative shrink-0 h-12 flex items-center gap-2 px-2 md:px-3 bg-slate-950 border-b border-slate-800 print:hidden z-30">
       <button type="button" data-tour="home" onClick={p.onHome} title="Inicio: todas las tareas" className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-slate-800/70 transition">
-        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#2c4270', color: '#fff' }}><LogoMark className="w-5 h-5" /></span>
+        <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#2f3a6e', color: '#fff' }}><LogoMark className="w-5 h-5" /></span>
         <span className="text-sm font-bold text-white hidden sm:block">{SITE.name}</span>
       </button>
 
@@ -62,6 +63,9 @@ export function TopBar(p: Props) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <button type="button" onClick={p.onSearch} title="Buscar en el documento (Ctrl+F)" className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/70 transition">
+          <Search className="w-[18px] h-[18px]" />
+        </button>
         <button type="button" onClick={p.onShortcuts} title="Atajos de teclado (?)" className="max-md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-slate-300 hover:text-white hover:bg-slate-800/70 transition">
           <Keyboard className="w-[18px] h-[18px]" />
         </button>

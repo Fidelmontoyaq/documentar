@@ -124,7 +124,7 @@ export function GuidedTour({ open, onClose, engine, onOpenCanvas }: Props) {
       {rect && !big ? (
         <div
           className="fixed rounded-xl pointer-events-none transition-all duration-200"
-          style={{ left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(15,23,42,.62), 0 0 0 3px #5b7fbd' }}
+          style={{ left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, boxShadow: '0 0 0 9999px rgba(15,23,42,.62), 0 0 0 3px #6272c0' }}
         />
       ) : (
         <div className="fixed inset-0 bg-slate-950/60 pointer-events-none" />

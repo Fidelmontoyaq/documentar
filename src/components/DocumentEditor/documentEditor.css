@@ -17,7 +17,7 @@
 .doc-editor ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
 .doc-editor ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-.sortable-ghost { opacity: 0.4; border: 2px dashed #5b7fbd !important; }
+.sortable-ghost { opacity: 0.4; border: 2px dashed #6272c0 !important; }
 
 .page-content h1, .page-content h2, .page-content h3 {
   font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
@@ -83,13 +83,13 @@ body.exporting .has-placeholder::before { content: none !important; }
 .a4-page.page-active { outline: 2px solid rgba(96, 165, 250, 0.45); outline-offset: 4px; }
 
 /* Guía de márgenes: solo existe mientras se arrastra o redimensiona un elemento */
-.margin-guide { position: absolute; pointer-events: none; z-index: 5; border: 1.5px dashed #5b7fbd; background: rgba(91, 127, 189, 0.05); transition: border-color .1s, background .1s; }
+.margin-guide { position: absolute; pointer-events: none; z-index: 5; border: 1.5px dashed #6272c0; background: rgba(91, 127, 189, 0.05); transition: border-color .1s, background .1s; }
 .margin-guide.guide-out { border-color: #ef4444; background: rgba(239, 68, 68, 0.06); }
 
 /* Barra de zoom: control deslizante con bolita */
 .zoom-range { -webkit-appearance: none; appearance: none; width: 140px; height: 4px; border-radius: 9999px; background: #475569; outline: none; cursor: pointer; }
-.zoom-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: #5b7fbd; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab; }
-.zoom-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #5b7fbd; border: 2px solid #fff; cursor: grab; }
+.zoom-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 9999px; background: #6272c0; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); cursor: grab; }
+.zoom-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 9999px; background: #6272c0; border: 2px solid #fff; cursor: grab; }
 
 /* Organizador de páginas: animación de arrastre y del check al (des)marcar */
 .thumb-dragging { opacity: .35; transform: scale(.94); }
@@ -244,7 +244,7 @@ body.de-light .text-white[class*="bg-purple"], body.de-light .text-white[class*=
 body.de-light .text-white[class*="bg-green"], body.de-light .text-white[class*="bg-orange"] { color: #fff; }
 body.de-light .hover\:text-white:hover { color: #0f172a; }
 body.de-light [class*="bg-blue-"].hover\:text-white:hover, body.de-light [class*="bg-emerald-"].hover\:text-white:hover { color: #fff; }
-body.de-light .text-blue-400, body.de-light .text-blue-300 { color: #3f63a6; }
+body.de-light .text-blue-400, body.de-light .text-blue-300 { color: #4a5aa8; }
 body.de-light .text-emerald-400, body.de-light .text-emerald-300 { color: #397265; }
 body.de-light .text-amber-400, body.de-light .text-amber-300 { color: #b45309; }
 body.de-light .text-rose-400, body.de-light .text-rose-300 { color: #e11d48; }
@@ -271,3 +271,14 @@ body .doc-editor .a4-page .text-white { color: #fff; }
 /* Texto curvo: el texto editable queda oculto (es la fuente) y se ven las letras colocadas en arco. */
 .floating-box[data-curve] .floating-box-content > [contenteditable] { visibility: hidden; }
 .floating-box .curve-layer span { user-select: none; }
+
+/* Rendimiento con PDF de cientos de hojas: las hojas fuera de pantalla no se dibujan ni calculan. */
+.a4-page[data-pdf-page="true"] { content-visibility: auto; contain-intrinsic-size: auto 794px auto 1123px; }
+.a4-page[data-pdf-page="true"][class*="w-[297mm]"] { contain-intrinsic-size: auto 1123px auto 794px; }
+body.exporting .a4-page[data-pdf-page="true"] { content-visibility: visible; }
+
+/* Buscar (Ctrl+F) */
+::highlight(de-find) { background: rgba(250, 204, 21, .55); color: inherit; }
+::highlight(de-find-current) { background: rgba(249, 115, 22, .75); color: #000; }
+.pdf-find { background: rgba(250, 204, 21, .45); mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; z-index: 25; }
+.pdf-find-current { background: rgba(249, 115, 22, .55); outline: 2px solid #f97316; }

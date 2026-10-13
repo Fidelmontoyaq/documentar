@@ -81,6 +81,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
   const [outFile, setOutFile] = useState<File | null>(null);
   const [cfg, setCfg] = useState<FolioConfig>(() => loadFolioConfig());
   const [tab, setTab] = useState<'doc' | 'batch'>('doc');
+  const [adv, setAdv] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [numbering, setNumbering] = useState<'each' | 'continuous'>('each');
   const [output, setOutput] = useState<'zip' | 'merged'>('zip');
@@ -184,7 +185,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
 
             <div className={section}>
               <div className={h}>Texto y numeración</div>
-              <div>
+              {adv && <div>
                 <label className={label}>Texto (usa {'{n}'} para el número y {'{total}'} para el último)</label>
                 <input value={cfg.template} onChange={(e) => update({ template: e.target.value })} className={`${field} w-full`} placeholder="Pág. {n} de {total}" />
                 <div className="flex flex-wrap gap-1 mt-1.5">
@@ -197,7 +198,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                     Borrar
                   </button>
                 </div>
-              </div>
+              </div>}
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2 flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
                   {(
@@ -215,7 +216,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                   <label className={label}>Empezar en</label>
                   <input type="number" min={0} value={cfg.start} onChange={(e) => update({ start: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} className={`${field} w-full`} />
                 </div>
-                <div>
+                {adv && <><div>
                   <label className={label}>Omitir primeras hojas</label>
                   <input type="number" min={0} value={cfg.skipFirst} onChange={(e) => update({ skipFirst: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} className={`${field} w-full`} />
                 </div>
@@ -235,7 +236,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                     <option value={3}>001</option>
                     <option value={4}>0001</option>
                   </select>
-                </div>
+                </div></>}
               </div>
             </div>
 
@@ -252,7 +253,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                     );
                   })}
                 </div>
-                <div className="grid grid-cols-2 gap-2 flex-1 min-w-[180px]">
+                {adv && <div className="grid grid-cols-2 gap-2 flex-1 min-w-[180px]">
                   <div>
                     <label className={label}>Distancia lateral (px)</label>
                     <input type="number" min={0} value={cfg.offsetX} onChange={(e) => update({ offsetX: Number(e.target.value) || 0 })} className={`${field} w-full`} />
@@ -261,11 +262,15 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                     <label className={label}>Distancia vertical (px)</label>
                     <input type="number" min={0} value={cfg.offsetY} onChange={(e) => update({ offsetY: Number(e.target.value) || 0 })} className={`${field} w-full`} />
                   </div>
-                </div>
+                </div>}
               </div>
             </div>
 
-            <div className={section}>
+            <button type="button" onClick={() => setAdv((v) => !v)} className="w-full py-2 rounded-xl text-xs font-medium border border-dashed border-slate-600 text-slate-300 hover:border-slate-400">
+              {adv ? 'Ocultar opciones avanzadas' : 'Más opciones: texto, letra, forma, distancias…'}
+            </button>
+
+            {adv && <div className={section}>
               <div className={h}>Letra</div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="col-span-2">
@@ -285,9 +290,9 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                   <button type="button" onClick={() => update({ italic: !cfg.italic })} className={`flex-1 py-1.5 rounded-lg text-sm italic border transition ${cfg.italic ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>K</button>
                 </div>
               </div>
-            </div>
+            </div>}
 
-            <div className={section}>
+            {adv && <div className={section}>
               <div className={h}>Forma detrás del número</div>
               <div className="flex flex-wrap gap-1.5">
                 {(
@@ -340,7 +345,7 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
                 </div>
               )}
               <p className="text-[11px] text-slate-500">Tip: forma clara con 50 % de transparencia y texto oscuro se lee bien sobre fotos y escaneos.</p>
-            </div>
+            </div>}
           </div>
 
           {/* ---------- VISTA PREVIA + ACCIONES ---------- */}

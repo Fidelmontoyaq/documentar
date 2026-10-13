@@ -11,8 +11,8 @@ export function InstallHelp({ kind, onClose }: { kind: InstallHelpKind | null; o
     },
     android: {
       title: 'Instalar en Android',
-      items: ['Abre esta página en <b>Chrome</b> (o Edge / Samsung Internet).', 'Toca el menú <b>⋮</b> (tres puntos) arriba a la derecha.', 'Elige <b>«Instalar aplicación»</b> o <b>«Añadir a pantalla de inicio»</b>.'],
-      note: 'Si Chrome ya te lo ofreció y lo cerraste varias veces, deja de mostrar el aviso solo; este camino manual siempre funciona.',
+      items: ['Abre esta página en <b>Chrome</b> (o Edge / Samsung Internet).', 'Toca el menú <b>⋮</b> (tres puntos) arriba a la derecha y <b>desactiva «Sitio para computadoras»</b> si está marcado (con eso activo, Chrome solo crea un acceso directo y no instala la app).', 'Elige <b>«Instalar app»</b> (no «Añadir a pantalla de inicio»).'],
+      note: 'Si ya la instalaste antes, aparecerá «Abrir app» en el menú: ábrela desde el ícono de Documentar. Si solo ves un acceso directo, bórralo y repite estos pasos.',
     },
     inapp: {
       title: 'Ábrela en tu navegador',

@@ -25,7 +25,7 @@ interface Card {
 }
 
 const CARDS: Card[] = [
-  { id: 'merge', title: 'Unir PDF', hint: 'Junta PDF y fotos en uno', icon: <Combine />, color: '#3f63a6' },
+  { id: 'merge', title: 'Unir PDF', hint: 'Junta PDF y fotos en uno', icon: <Combine />, color: '#4a5aa8' },
   { id: 'split', title: 'Dividir PDF', hint: 'Por páginas, cada N o rangos', icon: <Split />, color: '#b0584a' },
   { id: 'cut', title: 'Cortar PDF', hint: 'En dos partes, donde quieras', icon: <Scissors />, color: '#a8643a' },
   { id: 'extract', title: 'Extraer páginas', hint: 'Saca solo las que necesitas', icon: <FileOutput />, color: '#397265' },
@@ -34,7 +34,7 @@ const CARDS: Card[] = [
   { id: 'organize', title: 'Ordenar páginas', hint: 'Mover, girar o borrar', icon: <LayoutGrid />, color: '#5a55a3', accept: '.pdf,.docx,.png,.jpg,.jpeg' },
   { id: 'folio', title: 'Foliar PDF', hint: 'Ascendente o en reverso', icon: <Hash />, color: '#9a7425' },
   { id: 'sign', title: 'Firmar PDF', hint: 'Dibuja y coloca tu firma', icon: <SignatureIcon />, color: '#5a55a3', accept: '.pdf,.png,.jpg,.jpeg' },
-  { id: 'editpdf', title: 'Editar texto', hint: 'Corrige el texto de un PDF', icon: <FilePenLine />, color: '#a04877', accept: '.pdf' },
+  { id: 'editpdf', title: 'Editar texto', hint: 'Corrige el texto de un PDF', icon: <FilePenLine />, color: '#a04877', accept: '.pdf,.documentar' },
   { id: 'removebg', title: 'Quitar fondo', hint: 'De tus imágenes, en lote', icon: <RemoveBgIcon />, color: '#2f7a8f' },
   { id: 'removeobj', title: 'Quitar objeto', hint: 'Borra algo de una foto', icon: <Eraser />, color: '#b0584a', accept: 'image/*' },
   { id: 'size', title: 'Tamaño de hoja', hint: 'A4, Carta, redes sociales…', icon: <PageSizeIcon />, color: '#4a5568' },
@@ -82,60 +82,56 @@ export function HomeScreen({ open, onClose, onPick, onTour, canInstall, onInstal
           if (t && files.length) onPick(t, files);
         }}
       />
-      <div className="relative w-full max-w-[900px] max-h-[calc(100dvh-20px)] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <header className="flex items-center gap-3 px-4 sm:px-6 pt-4 sm:pt-5 pb-2 sm:pb-3">
-          <span className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#2c4270', color: '#fff' }}>
+      <div className="relative w-full max-w-[760px] max-h-[calc(100dvh-20px)] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center gap-3 px-4 sm:px-6 py-3.5 sm:py-4 shrink-0 text-white" style={{ background: 'linear-gradient(120deg,#2f3a6e 0%,#4a5aa8 55%,#7a63b8 100%)' }}>
+          <span className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center shrink-0 bg-white/15 ring-1 ring-white/25">
             <LogoMark className="w-6 h-6" />
           </span>
           <div className="min-w-0 mr-auto">
-            <h1 className="text-lg sm:text-xl font-bold text-white leading-tight tracking-tight">{SITE.name}</h1>
-            <p className="text-xs sm:text-sm text-slate-400 leading-snug">¿Qué quieres hacer hoy? Elige una tarea y empieza con un clic.</p>
+            <h1 className="text-lg sm:text-xl font-bold leading-tight tracking-tight" style={{ color: '#fff' }}>{SITE.name}</h1>
+            <p className="text-xs sm:text-[13px] leading-snug" style={{ color: 'rgba(255,255,255,.82)' }}>¿Qué quieres hacer hoy?</p>
           </div>
-          <button type="button" onClick={onClose} title="Cerrar e ir al editor" className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:text-white shrink-0">
+          <button type="button" onClick={onClose} title="Cerrar e ir al editor" className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 shrink-0" style={{ color: '#fff' }}>
             <X className="w-4 h-4" />
           </button>
         </header>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2.5 px-3 sm:px-6 py-2 sm:py-3 min-h-0">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 min-h-0 overflow-y-auto">
           {CARDS.map((c) => (
             <button
               key={c.id}
               type="button"
               data-home-task={c.id}
+              title={c.hint}
               onClick={() => choose(c)}
-              className="group text-left rounded-xl border border-slate-700 bg-slate-900 hover:border-slate-500 hover:shadow-md transition flex items-center gap-2.5 px-2.5 py-2 sm:px-3 sm:py-2.5"
+              className="group rounded-2xl border border-slate-700 bg-slate-900 shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-slate-500 transition flex flex-col items-center justify-center gap-1.5 px-1.5 py-2.5 sm:py-3.5 min-h-[78px] sm:min-h-[96px]"
             >
-              <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 transition group-hover:scale-105" style={{ background: `${c.color}1f`, color: c.color }}>
-                <span className="[&>svg]:w-[18px] [&>svg]:h-[18px] sm:[&>svg]:w-5 sm:[&>svg]:h-5 flex">{c.icon}</span>
+              <span className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 transition group-hover:scale-110" style={{ background: `${c.color}1c`, color: c.color }}>
+                <span className="[&>svg]:w-[21px] [&>svg]:h-[21px] sm:[&>svg]:w-6 sm:[&>svg]:h-6 flex">{c.icon}</span>
               </span>
-              <span className="min-w-0">
-                <span className="block text-[12.5px] sm:text-[13px] font-bold text-white leading-tight">{c.title}</span>
-                <span className="block text-[10.5px] text-slate-400 leading-snug mt-0.5 [@media(max-height:760px)]:hidden">{c.hint}</span>
-              </span>
+              <span className="block text-[11.5px] sm:text-[12.5px] font-semibold text-white leading-tight text-center">{c.title}</span>
             </button>
           ))}
         </div>
 
-        <footer className="border-t border-slate-800 bg-slate-950/30 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-4 gap-y-2.5">
-          <div className="min-w-0 flex-1 basis-[260px]">
-            <p className="text-[12px] text-slate-300 leading-snug">
-              <b className="text-white">Nosotros:</b> una herramienta gratuita para estudiantes y oficinas. Todo ocurre en tu navegador, <b className="text-white">tus archivos nunca se suben</b> a un servidor.
-            </p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Hecho por {SITE.author} · {SITE.name} © {new Date().getFullYear()}</p>
-          </div>
+        <footer className="shrink-0 border-t border-slate-800 bg-slate-950/30 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-4 gap-y-2.5">
+          <p className="text-[11.5px] text-slate-400 leading-snug flex-1 basis-[200px] min-w-0">
+            <b className="text-slate-200">Gratis</b> · <b className="text-slate-200">tus archivos nunca salen de tu dispositivo</b>
+            <span className="block text-[10.5px] text-slate-500 mt-0.5">Hecho por {SITE.author} · {SITE.name} © {new Date().getFullYear()}</span>
+          </p>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={onTour} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:border-slate-500">
-              <Play className="w-3.5 h-3.5" /> Recorrido
+            <button type="button" onClick={onTour} title="Recorrido guiado" className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-slate-700 text-slate-200 hover:border-slate-500">
+              <Play className="w-3.5 h-3.5" /> <span className="max-sm:hidden">Recorrido</span>
             </button>
-            <button type="button" onClick={() => void share()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:border-slate-500">
+            <button type="button" onClick={() => void share()} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-slate-700 text-slate-200 hover:border-slate-500">
               {copied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />} {copied ? 'Enlace copiado' : 'Compartir'}
             </button>
             {canInstall && (
-              <button type="button" onClick={onInstall} className="md:hidden flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-slate-700 text-slate-200">
-                <Download className="w-3.5 h-3.5" /> Instalar
+              <button type="button" onClick={onInstall} className="md:hidden flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-slate-700 text-slate-200">
+                <Download className="w-3.5 h-3.5" /> Instalar app
               </button>
             )}
-            <button type="button" data-home-editor onClick={onClose} className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">
+            <button type="button" data-home-editor onClick={onClose} className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white" style={{ color: '#fff' }}>
               Ir al editor <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

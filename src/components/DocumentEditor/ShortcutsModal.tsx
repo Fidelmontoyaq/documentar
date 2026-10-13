@@ -10,6 +10,7 @@ const GROUPS: { title: string; items: [string[], string][] }[] = [
       [[MOD, 'Z'], 'Deshacer'],
       [[MOD, 'Y'], 'Rehacer (también ' + MOD + '+Shift+Z)'],
       [[MOD, 'S'], 'Descargar o compartir'],
+      [[MOD, 'F'], 'Buscar una palabra en todo el documento'],
       [['F5'], 'Presentación a pantalla completa'],
       [['?'], 'Ver estos atajos'],
       [['Esc'], 'Soltar la selección / cerrar'],

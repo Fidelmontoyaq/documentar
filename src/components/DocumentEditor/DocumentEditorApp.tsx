@@ -19,7 +19,9 @@ import { MergeTask, SplitTask, PagesTask } from './PdfTasks';
 import { TaskShell, NextSteps, type AfterAction } from './TaskKit';
 import { downloadBlob } from '../../engine/pdfTools';
 import { TopBar } from './TopBar';
+import { SearchBar, ConfirmDialog } from './SearchBar';
 import { ShortcutsModal } from './ShortcutsModal';
+import { importPdfPages } from '../../engine/pdfText';
 import { clearDoc, loadDoc, requestPersistence, saveDoc } from '../../engine/persist';
 import { loadFolioConfig } from '../../engine/folio';
 import { ThumbnailPanel, ViewSwitcher, PresentationView, type ViewMode } from './PageViews';
@@ -52,6 +54,8 @@ export function DocumentEditorApp() {
     clearError,
     notice,
     setNotice,
+    confirmReq,
+    setConfirmReq,
     pdfEditOn,
     recentFonts,
     activePageId,
@@ -75,11 +79,13 @@ export function DocumentEditorApp() {
   const [pagesSheet, setPagesSheet] = useState(false);
   const [bgBatchOpen, setBgBatchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [pagesKind, setPagesKind] = useState<'cut' | 'extract' | 'delete' | 'add' | null>(null);
   const [objFile, setObjFile] = useState<File | null>(null);
   const [objSrc, setObjSrc] = useState<string | null>(null);
   const [objDone, setObjDone] = useState<File | null>(null);
   const [bgMode, setBgMode] = useState<'bg' | 'object'>('bg');
+  const [extract, setExtract] = useState<{ pageId: string; src: string } | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [folioStart, setFolioStart] = useState<'doc' | 'batch'>('doc');
@@ -138,6 +144,7 @@ export function DocumentEditorApp() {
     void (async () => {
       const doc = await loadDoc();
       if (doc && doc.html && engine.isBlankDocument()) {
+        importPdfPages(doc.pdfPages as never);
         engine.loadSnapshot(doc.html, doc.font);
         if (doc.folio && (doc.folio as { enabled?: boolean }).enabled) engine.setFolioConfig({ ...loadFolioConfig(), ...(doc.folio as object) } as ReturnType<typeof loadFolioConfig>);
         setRestoreNote(true);
@@ -151,11 +158,12 @@ export function DocumentEditorApp() {
   const saveNow = () => {
     if (!engine || !readyToSave || skipSave.current) return;
     const snap = engine.exportSnapshot();
-    void saveDoc({ html: snap.html, font: snap.font, folio: engine.getFolioConfig() as unknown as Record<string, unknown>, savedAt: Date.now(), pages: snap.pages });
+    void saveDoc({ html: snap.html, font: snap.font, folio: engine.getFolioConfig() as unknown as Record<string, unknown>, savedAt: Date.now(), pages: snap.pages, pdfPages: engine.pdfPagesFor(snap.html) });
   };
   useEffect(() => {
     if (!readyToSave) return;
-    const t = setTimeout(saveNow, 1200);
+    // Con cientos de hojas guardar cuesta más: se espera más entre guardados.
+    const t = setTimeout(saveNow, Math.min(9000, 1200 + pageCount * 25));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentVersion, readyToSave]);
@@ -167,12 +175,34 @@ export function DocumentEditorApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, readyToSave]);
 
+  // ---- Ventanas emergentes: al abrir una, se cierran las demás (nunca una encima de otra) ----
+  const popFlags = { canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel: panel !== null };
+  const prevPop = useRef(popFlags);
+  useEffect(() => {
+    const prev = prevPop.current;
+    const opened = (Object.keys(popFlags) as (keyof typeof popFlags)[]).filter((k) => popFlags[k] && !prev[k]);
+    prevPop.current = popFlags;
+    if (opened.length !== 1) return;
+    const keep = opened[0];
+    if (keep !== 'canvasOpen') setCanvasOpen(false);
+    if (keep !== 'exportOpen') setExportOpen(false);
+    if (keep !== 'folioOpen') setFolioOpen(false);
+    if (keep !== 'organizerOpen') setOrganizerOpen(false);
+    if (keep !== 'signatureOpen') setSignatureOpen(false);
+    if (keep !== 'shortcutsOpen') setShortcutsOpen(false);
+    if (keep !== 'searchOpen') setSearchOpen(false);
+    if (keep !== 'panel') setPanel(null);
+    if (keep !== 'panel') setDrawerOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel]);
+
   // ---- Atajos generales ----
   useEffect(() => {
     const kd = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       const typing = !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); setExportOpen(true); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); setSearchOpen(true); }
       else if (e.key === '?' && !typing) { e.preventDefault(); setShortcutsOpen(true); }
     };
     window.addEventListener('keydown', kd);
@@ -320,6 +350,7 @@ export function DocumentEditorApp() {
         onOrganize={() => setOrganizerOpen(true)}
         onRemoveBg={openRemoveBg}
         onShortcuts={() => setShortcutsOpen(true)}
+        onSearch={() => setSearchOpen(true)}
         onShare={requestExport}
         folioActive={folioActive}
         formatActive={panel === 'format'}
@@ -330,6 +361,11 @@ export function DocumentEditorApp() {
           activePanel={panel}
           pdfEditOn={pdfEditOn}
           onTogglePdfEdit={() => void engine?.setPdfEditMode(!pdfEditOn)}
+          onExtractObject={() => {
+            const b = engine?.getPageBackdrop();
+            if (b) setExtract(b);
+            else setNotice('Sube un PDF y ve a la hoja de la que quieres sacar un logo u objeto.');
+          }}
           onAddImages={handleAddImages}
           onAddTextBox={() => engine?.insertFloatingTextBox()}
           onAddPage={() => engine?.addNewPage()}
@@ -511,6 +547,17 @@ export function DocumentEditorApp() {
         }}
       />
 
+      <RemoveBgDialog
+        open={!!extract}
+        src={extract?.src ?? null}
+        mode="extract"
+        onClose={() => setExtract(null)}
+        onApply={() => undefined}
+        onExtract={(r) => {
+          if (extract) void engine?.applyExtractedObject(extract.pageId, r.filled, r.obj, r.w, r.h);
+          setExtract(null);
+        }}
+      />
       {/* Quitar objeto desde el inicio: foto → marcar → descargar */}
       <RemoveBgDialog
         open={!!objSrc}
@@ -579,6 +626,8 @@ export function DocumentEditorApp() {
         </div>
       )}
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <SearchBar engine={engine} open={searchOpen} onClose={() => setSearchOpen(false)} version={contentVersion} />
+      <ConfirmDialog req={confirmReq} onClose={() => setConfirmReq(null)} />
 
       {notice && (
         <div

@@ -90,7 +90,7 @@ export function SidePanel({
               id="multiFileInput"
               type="file"
               multiple
-              accept=".pdf,.docx,.png,.jpg,.jpeg"
+              accept=".pdf,.docx,.documentar,.png,.jpg,.jpeg"
               className="hidden"
               onChange={(e) => {
                 onFilesSelected(Array.from(e.target.files ?? []));

@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import {
   UploadCloud, Image as ImageIcon, Type, FilePlus, LayoutTemplate,
-  Shapes, Frame, FilePenLine, Menu, X, ArrowUp, ArrowDown, RotateCw, CopyPlus, Trash2,
+  Shapes, ScanSearch, Frame, FilePenLine, Menu, X, ArrowUp, ArrowDown, RotateCw, CopyPlus, Trash2,
   Sun, Moon, MonitorSmartphone, HelpCircle, Download, ChevronLeft, ChevronRight, LayoutDashboard,
 } from 'lucide-react';
 import { ArrangeMenu } from './ArrangeMenu';
@@ -18,6 +18,7 @@ interface IconRailProps {
   activePanel: 'import' | 'format' | null;
   pdfEditOn: boolean;
   onTogglePdfEdit: () => void;
+  onExtractObject: () => void;
   onAddImages: (files: File[]) => void;
   onAddTextBox: () => void;
   onAddPage: () => void;
@@ -87,6 +88,7 @@ export function IconRail(p: IconRailProps) {
     { id: 'sign', label: 'Firma', title: 'Agregar firma', icon: <SignatureIcon className="w-5 h-5" />, group: 'insertar', onClick: p.onOpenSignature },
     { id: 'page', label: 'Hoja', title: 'Agregar una hoja en blanco', icon: <FilePlus className="w-5 h-5" />, group: 'insertar', onClick: p.onAddPage },
     { id: 'pdfedit', label: 'Editar PDF', title: 'Editar el texto de un PDF importado (toca un texto)', icon: <FilePenLine className="w-5 h-5" />, group: 'editar', active: p.pdfEditOn, onClick: p.onTogglePdfEdit },
+    { id: 'extract', label: 'Objeto PDF', title: 'Sacar un logo u objeto de la hoja de un PDF como imagen aparte', icon: <ScanSearch className="w-5 h-5" />, group: 'editar', onClick: p.onExtractObject },
     // «Ordenar» solo aparece cuando la hoja tiene 2 o más imágenes (las firmas no cuentan).
     ...(canArrange
       ? [{ id: 'arrange', label: 'Ordenar', title: 'Ordenar las imágenes de esta hoja', icon: <LayoutTemplate className="w-5 h-5" />, group: 'editar' as const, badge: p.imageCount, active: arrangeOpen, onClick: (e: MouseEvent<HTMLElement>) => { setArrangeTop(e.currentTarget.getBoundingClientRect().top); setArrangeOpen((v) => !v); } }]
