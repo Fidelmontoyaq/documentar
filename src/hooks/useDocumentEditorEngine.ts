@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DocumentEditorEngine } from '../engine/DocumentEditorEngine';
 import { loadRecentFonts, rememberFontUsed } from '../engine/fontCatalog';
-import type { PageInfo, ToolbarState } from '../types/documentEditor';
+import type { ConfirmRequest, PageInfo, ToolbarState } from '../types/documentEditor';
 
 interface LoadingState {
   show: boolean;
@@ -27,9 +27,11 @@ export function useDocumentEditorEngine() {
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [toolbarState, setToolbarState] = useState<ToolbarState | null>(null);
+  const [colorPage, setColorPage] = useState<{ id: string; n: number } | null>(null);
   const [loading, setLoading] = useState<LoadingState>({ show: false, title: '', status: '' });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const [pdfEditOn, setPdfEditOn] = useState(false);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [contentVersion, setContentVersion] = useState(0);
@@ -50,6 +52,8 @@ export function useDocumentEditorEngine() {
       onLoadingChange: setLoading,
       onError: setErrorMessage,
       onNotice: setNotice,
+      onPageColor: (id) => setColorPage((p) => ({ id, n: (p?.n ?? 0) + 1 })),
+      onConfirm: setConfirmReq,
       onPdfEditModeChange: setPdfEditOn,
     });
     instance.setToolbarElement(toolbarRef.current);
@@ -73,12 +77,15 @@ export function useDocumentEditorEngine() {
     zoom,
     history,
     toolbarState,
+    colorPage,
     pageInfo,
     loading,
     errorMessage,
     clearError,
     notice,
     setNotice,
+    confirmReq,
+    setConfirmReq,
     pdfEditOn,
     recentFonts,
     activePageId,
