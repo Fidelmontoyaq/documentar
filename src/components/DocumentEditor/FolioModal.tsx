@@ -154,8 +154,8 @@ export function FolioModal({ open, onClose, engine, pageCount, recentFonts, star
 
   return createPortal(
     <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
-      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-700 md:rounded-2xl shadow-2xl w-full max-w-5xl h-[94dvh] md:h-auto md:max-h-[92vh] flex flex-col rounded-t-2xl">
+      <div className="absolute inset-0 bg-slate-950/75" onClick={onClose} />
+      <div className="relative bg-slate-900 border border-slate-700 md:rounded-2xl shadow-xl w-full max-w-5xl h-[94dvh] md:h-auto md:max-h-[92vh] flex flex-col rounded-t-2xl">
         <div className="flex items-center justify-between px-4 md:px-5 py-3 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
             <Hash className="w-5 h-5 text-blue-400" />

@@ -223,7 +223,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ isOpen, onClose, onC
     <div className="de-portal"><div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-line px-5 py-3.5 flex items-center justify-between z-10">
           <h2 className="font-semibold text-lg">Firma</h2>
           <button

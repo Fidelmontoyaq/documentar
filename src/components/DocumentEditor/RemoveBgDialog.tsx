@@ -385,7 +385,7 @@ export function RemoveBgDialog({ open, src, onClose, onApply, mode = 'bg', onExt
   if (!open) return null;
 
   return (
-    <div data-keep-selection className="fixed inset-0 z-[90] bg-slate-950/90 backdrop-blur-sm flex flex-col md:flex-row print:hidden">
+    <div data-keep-selection className="fixed inset-0 z-[90] bg-slate-950/90 flex flex-col md:flex-row print:hidden">
       {/* Lienzo de trabajo */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-800 bg-slate-900">

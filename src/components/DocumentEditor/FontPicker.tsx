@@ -186,8 +186,8 @@ export function FontPicker({ value, recentFonts, onChange, placeholder = 'Fuente
       }}
       className={
         isMobile
-          ? 'fixed inset-x-0 bottom-0 z-[95] bg-slate-900 border-t border-slate-700 rounded-t-2xl shadow-2xl flex flex-col max-h-[78dvh]'
-          : 'fixed z-[95] w-[360px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl flex flex-col'
+          ? 'fixed inset-x-0 bottom-0 z-[95] bg-slate-900 border-t border-slate-700 rounded-t-2xl shadow-xl flex flex-col max-h-[78dvh]'
+          : 'fixed z-[95] w-[360px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl flex flex-col'
       }
       style={!isMobile && pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxH } : undefined}
     >

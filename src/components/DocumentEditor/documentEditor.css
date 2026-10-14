@@ -10,7 +10,7 @@
   6) Mostrar el marco y los controladores de un elemento flotante (imagen, pie de
      foto o cuadro de texto) solo cuando está seleccionado.
 */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;500;700&family=Open+Sans:wght@400;600&family=Roboto:wght@400;500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&family=Tinos:ital,wght@0,400;0,700;1,400&family=Arimo:ital,wght@0,400;0,700;1,400&family=Bitter:ital,wght@0,400;0,700;1,400&display=swap');
+/* Las tipografías de Google se cargan sin bloquear el inicio: ver src/main.tsx */
 
 .doc-editor ::-webkit-scrollbar { width: 8px; height: 8px; }
 .doc-editor ::-webkit-scrollbar-track { background: #1e293b; }
@@ -282,3 +282,6 @@ body.exporting .a4-page[data-pdf-page="true"] { content-visibility: visible; }
 ::highlight(de-find-current) { background: rgba(249, 115, 22, .75); color: #000; }
 .pdf-find { background: rgba(250, 204, 21, .45); mix-blend-mode: multiply; pointer-events: none; border-radius: 2px; z-index: 25; }
 .pdf-find-current { background: rgba(249, 115, 22, .55); outline: 2px solid #f97316; }
+
+/* Pie de página un poco más abajo (más cerca del borde de la hoja) */
+.a4-page > .page-footer { position: relative; top: 16px; margin-top: 0; }

@@ -3,10 +3,8 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SIZE_GROUPS } from '../../engine/pageSizes';
 import type { DocumentEditorEngine } from '../../engine/DocumentEditorEngine';
 
-export const TOUR_KEY = 'docucraft.tour.off';
-export const tourDisabled = () => {
-  try { return localStorage.getItem(TOUR_KEY) === '1'; } catch { return false; }
-};
+import { TOUR_KEY, tourDisabled } from './tourFlag';
+export { TOUR_KEY, tourDisabled };
 
 interface Step {
   id: string;
@@ -131,7 +129,7 @@ export function GuidedTour({ open, onClose, engine, onOpenCanvas }: Props) {
       )}
       {big && rect && <div className="fixed rounded-xl pointer-events-none border-[3px] border-blue-500" style={{ left: rect.left + 6, top: rect.top + 6, width: rect.width - 12, height: rect.height - 12 }} />}
 
-      <div className="fixed bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4" style={style} role="dialog" aria-label="Tutorial">
+      <div className="fixed bg-slate-900 border border-slate-700 rounded-2xl shadow-xl p-4" style={style} role="dialog" aria-label="Tutorial">
         <div className="flex items-start justify-between gap-2">
           <h3 className="text-sm font-bold text-white leading-snug">{step.title}</h3>
           <button type="button" onClick={close} title="Cerrar tutorial" className="shrink-0 w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-800">

@@ -51,7 +51,7 @@ export function TopBar(p: Props) {
         {menu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5">
+            <div className="absolute left-0 top-full mt-1.5 z-50 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-1.5">
               {docItems.map((t) => (
                 <button key={t.id} type="button" onClick={() => { setMenu(false); t.on(); }} className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left ${t.active ? 'text-blue-500' : 'text-slate-200'} hover:bg-slate-800/70`}>
                   {t.icon}{t.label}

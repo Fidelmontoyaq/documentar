@@ -43,7 +43,7 @@ export function ShapesMenu({ open, mode, top, onPickShape, onPickFrame, onClose 
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         data-keep-selection
-        className="fixed left-[80px] z-50 w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 print:hidden max-md:left-2 max-md:right-2 max-md:w-auto max-md:!top-auto max-md:bottom-[76px]"
+        className="fixed left-[80px] z-50 w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-3 print:hidden max-md:left-2 max-md:right-2 max-md:w-auto max-md:!top-auto max-md:bottom-[76px]"
         style={{ top: Math.max(8, top) }}
       >
         <div className="flex items-center justify-between mb-2">

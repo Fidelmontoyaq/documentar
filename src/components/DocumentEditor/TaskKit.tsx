@@ -6,8 +6,8 @@ export type AfterAction = 'edit' | 'sign' | 'folio' | 'organize' | 'home';
 /** Marco común de las tareas directas (unir, dividir, quitar fondo…). */
 export function TaskShell({ title, icon, onClose, children, footer, z = 86 }: { title: string; icon: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; z?: number }) {
   return (
-    <div data-keep-selection style={{ zIndex: z }} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 print:hidden" onClick={onClose}>
-      <div className="w-full sm:max-w-2xl max-h-[94dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div data-keep-selection style={{ zIndex: z }} className="fixed inset-0 bg-slate-950/70 flex items-end sm:items-center justify-center sm:p-4 print:hidden" onClick={onClose}>
+      <div className="w-full sm:max-w-2xl max-h-[94dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-800">
           <span className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-500 flex items-center justify-center">{icon}</span>
           <h2 className="text-base font-bold text-white mr-auto">{title}</h2>

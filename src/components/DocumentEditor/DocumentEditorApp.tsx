@@ -1,23 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { FileText, FilePlus2, Upload } from 'lucide-react';
 import { useDocumentEditorEngine } from '../../hooks/useDocumentEditorEngine';
 import { readFileAsDataURL } from '../../engine/fileUtils';
 import { FONT_FILE_RE, addFontFiles } from '../../engine/fontLibrary';
 import { IconRail } from './IconRail';
 import { SidePanel, type PanelMode } from './SidePanel';
 import { EditorCanvas } from './EditorCanvas';
-import { PageOrganizerModal } from './PageOrganizerModal';
+const PageOrganizerModal = lazy(() => import('./PageOrganizerModal').then((m) => ({ default: m.PageOrganizerModal })));
 import { ElementToolbar } from './ElementToolbar';
 import { LoadingOverlay } from './LoadingOverlay';
-import { SignaturePad } from './SignaturePad';
-import { FolioModal } from './FolioModal';
+const SignaturePad = lazy(() => import('./SignaturePad').then((m) => ({ default: m.SignaturePad })));
+const FolioModal = lazy(() => import('./FolioModal').then((m) => ({ default: m.FolioModal })));
 import { CanvasPanel } from './CanvasPanel';
 import { ExportDialog } from './ExportDialog';
-import { RemoveBgDialog } from './RemoveBgDialog';
-import { BatchBgModal } from './BatchBgModal';
+const RemoveBgDialog = lazy(() => import('./RemoveBgDialog').then((m) => ({ default: m.RemoveBgDialog })));
+const BatchBgModal = lazy(() => import('./BatchBgModal').then((m) => ({ default: m.BatchBgModal })));
 import { HomeScreen, type HomeTask } from './HomeScreen';
-import { MergeTask, SplitTask, PagesTask } from './PdfTasks';
+const MergeTask = lazy(() => import('./PdfTasks').then((m) => ({ default: m.MergeTask })));
+const SplitTask = lazy(() => import('./PdfTasks').then((m) => ({ default: m.SplitTask })));
+const PagesTask = lazy(() => import('./PdfTasks').then((m) => ({ default: m.PagesTask })));
 import { TaskShell, NextSteps, type AfterAction } from './TaskKit';
-import { downloadBlob } from '../../engine/pdfTools';
+import { downloadBlob } from '../../engine/download';
 import { TopBar } from './TopBar';
 import { SearchBar, ConfirmDialog } from './SearchBar';
 import { ShortcutsModal } from './ShortcutsModal';
@@ -26,11 +29,20 @@ import { clearDoc, loadDoc, requestPersistence, saveDoc } from '../../engine/per
 import { loadFolioConfig } from '../../engine/folio';
 import { ThumbnailPanel, ViewSwitcher, PresentationView, type ViewMode } from './PageViews';
 import { InstallHelp } from './InstallHelp';
-import { GuidedTour, tourDisabled } from './GuidedTour';
+const ImageFxPanel = lazy(() => import('./ImageFxPanel').then((m) => ({ default: m.ImageFxPanel })));
+const GuidedTour = lazy(() => import('./GuidedTour').then((m) => ({ default: m.GuidedTour })));
+import { tourDisabled } from './tourFlag';
 import { useTheme } from '../../engine/theme';
 import { useInstall } from '../../hooks/useInstall';
 import type { ImagesPerPageMode, MarginPresetClass, MarginSelectValue } from '../../types/documentEditor';
 import './documentEditor.css';
+
+/** Monta el contenido solo tras abrirse la primera vez (carga el módulo bajo demanda). */
+function Lz({ when, children }: { when: boolean; children: React.ReactNode }) {
+  const [seen, setSeen] = useState(false);
+  if (when && !seen) setSeen(true);
+  return seen ? <Suspense fallback={null}>{children}</Suspense> : null;
+}
 
 const DEFAULT_FONT = "'Inter', sans-serif";
 const DEFAULT_MARGIN: MarginSelectValue = 'custom';
@@ -48,6 +60,7 @@ export function DocumentEditorApp() {
     zoom,
     history,
     toolbarState,
+    colorPage,
     pageInfo,
     loading,
     errorMessage,
@@ -100,6 +113,9 @@ export function DocumentEditorApp() {
   const [fontValue, setFontValue] = useState(DEFAULT_FONT);
   const [marginValue, setMarginValue] = useState<MarginSelectValue>(DEFAULT_MARGIN);
   const [customMarginCm, setCustomMarginCm] = useState(DEFAULT_MARGIN_CM);
+  const emptyInputRef = useRef<HTMLInputElement>(null);
+  const [fxPanel, setFxPanel] = useState<{ mode: 'box' | 'page'; pageId?: string } | null>(null);
+  useEffect(() => { if (colorPage) setFxPanel({ mode: 'page', pageId: colorPage.id }); }, [colorPage]);
   const [gapDialog, setGapDialog] = useState<{ pageCount: number; docCount: number } | null>(null);
   const [gapScope, setGapScope] = useState<'page' | 'document'>('document');
   const [gapValue, setGapValue] = useState(8);
@@ -176,7 +192,7 @@ export function DocumentEditorApp() {
   }, [engine, readyToSave]);
 
   // ---- Ventanas emergentes: al abrir una, se cierran las demás (nunca una encima de otra) ----
-  const popFlags = { canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel: panel !== null };
+  const popFlags = { canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel: panel !== null, fxOpen: !!fxPanel };
   const prevPop = useRef(popFlags);
   useEffect(() => {
     const prev = prevPop.current;
@@ -191,10 +207,11 @@ export function DocumentEditorApp() {
     if (keep !== 'signatureOpen') setSignatureOpen(false);
     if (keep !== 'shortcutsOpen') setShortcutsOpen(false);
     if (keep !== 'searchOpen') setSearchOpen(false);
+    if (keep !== 'fxOpen') setFxPanel(null);
     if (keep !== 'panel') setPanel(null);
     if (keep !== 'panel') setDrawerOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel]);
+  }, [canvasOpen, exportOpen, folioOpen, organizerOpen, signatureOpen, shortcutsOpen, searchOpen, panel, fxPanel]);
 
   // ---- Atajos generales ----
   useEffect(() => {
@@ -441,6 +458,10 @@ export function DocumentEditorApp() {
             pdfEditOn={pdfEditOn}
             onOpenCanvas={() => setCanvasOpen(true)}
             onSticker={(o) => void engine?.setStickerBorder(o)}
+            onImageTools={() => setFxPanel({ mode: 'box' })}
+            onGroup={() => engine?.groupSelected()}
+            onUngroup={() => engine?.ungroupSelected()}
+            onSaveImage={(f) => void engine?.saveSelectionAsImage(f)}
             onRemoveBg={() => {
               const target = engine?.getEditableImage();
               if (target) { setBgMode('bg'); setBgEdit(target); }
@@ -453,7 +474,7 @@ export function DocumentEditorApp() {
             }}
             onCaptionGapAll={() => openGapDialog(toolbarState?.captionGap ?? gapValue)}
           />
-          <div className="flex flex-1 min-h-0 min-w-0">
+          <div className="flex flex-1 min-h-0 min-w-0 relative">
           {showThumbs && (
             <ThumbnailPanel engine={engine} pageIds={pageIds} activeId={activePageId} version={contentVersion} mobileOpen={false} onCloseMobile={() => undefined} onPresent={() => setPresenting(true)} />
           )}
@@ -468,18 +489,40 @@ export function DocumentEditorApp() {
             onFit={() => engine?.fitToWidth()}
             onDropFiles={(f, x, y) => void handleDropFiles(f, x, y)}
           />
+          {pageCount === 0 && !loading.show && (
+            <div className="absolute inset-0 z-[5] flex items-center justify-center p-4 pointer-events-none">
+              <div className="pointer-events-auto text-center bg-slate-900 border border-slate-700 rounded-2xl shadow-xl px-6 py-6 max-w-xs">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-800 flex items-center justify-center text-slate-300"><FileText className="w-6 h-6" /></div>
+                <h3 className="text-white font-bold text-base mt-3">Documento vacío</h3>
+                <p className="text-xs text-slate-400 mt-1">Sube un PDF, Word o imágenes, o empieza con una hoja en blanco.</p>
+                <div className="flex gap-2 mt-4 justify-center">
+                  <button type="button" onClick={() => emptyInputRef.current?.click()} className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white" style={{ color: '#fff' }}><Upload className="w-3.5 h-3.5" /> Subir archivo</button>
+                  <button type="button" onClick={() => engine?.addBlankPage()} className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-xl border border-slate-600 text-slate-200 hover:border-slate-400"><FilePlus2 className="w-3.5 h-3.5" /> Hoja en blanco</button>
+                </div>
+                <input ref={emptyInputRef} type="file" multiple accept=".pdf,.docx,.documentar,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; if (f.length) void engine?.handleFileSelect(f, '1'); }} />
+              </div>
+            </div>
+          )}
           </div>
         </div>
       </div>
 
-      <PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} history={history} />
+      {fxPanel && (
+        <Lz when>
+          <ImageFxPanel engine={engine} mode={fxPanel.mode} pageId={fxPanel.pageId} selCount={toolbarState?.selCount ?? 1} onClose={() => setFxPanel(null)} />
+        </Lz>
+      )}
+
+      <Lz when={organizerOpen}>
+<PageOrganizerModal open={organizerOpen} onClose={() => setOrganizerOpen(false)} engine={engine} history={history} contentVersion={contentVersion} />
+      </Lz>
 
       {gapDialog && (
         <div
           data-keep-selection
-          className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center print:hidden"
+          className="fixed inset-0 z-[70] bg-slate-950/70 flex items-center justify-center print:hidden"
         >
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 w-[380px] max-w-[92vw]">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-xl p-6 w-[380px] max-w-[92vw]">
             <h3 className="text-white font-bold text-base mb-1">¿Estás seguro?</h3>
             <p className="text-sm text-slate-300 mb-3">
               Vas a cambiar la separación entre cada imagen y su pie de foto en varias imágenes a la vez.
@@ -528,14 +571,17 @@ export function DocumentEditorApp() {
         </div>
       )}
 
-      <SignaturePad
+      <Lz when={signatureOpen}>
+<SignaturePad
         isOpen={signatureOpen}
         onClose={() => setSignatureOpen(false)}
         onConfirm={(dataUrl) => {
           void engine?.insertFloatingImage(dataUrl, { signature: true });
         }}
       />
+      </Lz>
 
+      <Lz when={!!bgEdit || !!extract || !!objSrc}>
       <RemoveBgDialog
         open={!!bgEdit}
         src={bgEdit?.src ?? null}
@@ -574,6 +620,7 @@ export function DocumentEditorApp() {
           });
         }}
       />
+      </Lz>
       {objDone && (
         <TaskShell title="Quitar objeto" icon={<span className="text-sm">✓</span>} onClose={() => { setObjDone(null); setObjFile(null); }}>
           <NextSteps files={[objDone]} imagesOnly onAfter={(a, f) => { setObjDone(null); setObjFile(null); void onAfter(a, f); }} />
@@ -589,7 +636,8 @@ export function DocumentEditorApp() {
         info={pageInfo}
       />
 
-      <FolioModal
+      <Lz when={folioOpen}>
+<FolioModal
         open={folioOpen}
         onClose={() => {
           setFolioOpen(false);
@@ -601,6 +649,7 @@ export function DocumentEditorApp() {
         startTab={folioStart}
         onAfter={(a, f) => void onAfter(a, f)}
       />
+      </Lz>
 
       {pageCount > 1 && (
         <div className="md:hidden">
@@ -609,17 +658,17 @@ export function DocumentEditorApp() {
       )}
       <PresentationView engine={engine} open={presenting} startIndex={activeIndex} onClose={() => setPresenting(false)} />
       <HomeScreen open={homeOpen} onClose={closeHome} onPick={(t, f) => void onHomePick(t, f)} onTour={() => { setHomeOpen(false); setTourOpen(true); }} canInstall={install.canInstall} onInstall={() => void install.install()} />
-      {mergeOpen && <MergeTask onClose={() => setMergeOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
-      {pagesKind && <PagesTask kind={pagesKind} onClose={() => setPagesKind(null)} onAfter={(a, f) => void onAfter(a, f)} />}
-      {splitOpen && <SplitTask onClose={() => setSplitOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />}
-      <BatchBgModal open={bgBatchOpen} onClose={() => setBgBatchOpen(false)} onAfter={(a, f) => void onAfter(a, f)} />
-      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} engine={engine} onOpenCanvas={() => setCanvasOpen(true)} />
+      {mergeOpen && <Lz when><MergeTask onClose={() => setMergeOpen(false)} onAfter={(a, f) => void onAfter(a, f)} /></Lz>}
+      {pagesKind && <Lz when><PagesTask kind={pagesKind} onClose={() => setPagesKind(null)} onAfter={(a, f) => void onAfter(a, f)} /></Lz>}
+      {splitOpen && <Lz when><SplitTask onClose={() => setSplitOpen(false)} onAfter={(a, f) => void onAfter(a, f)} /></Lz>}
+      <Lz when={bgBatchOpen}><BatchBgModal open={bgBatchOpen} onClose={() => setBgBatchOpen(false)} onAfter={(a, f) => void onAfter(a, f)} /></Lz>
+      <Lz when={tourOpen}><GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} engine={engine} onOpenCanvas={() => setCanvasOpen(true)} /></Lz>
       <InstallHelp kind={install.help} onClose={install.closeHelp} />
 
       <LoadingOverlay show={loading.show} title={loading.title} status={loading.status} />
 
       {restoreNote && (
-        <div data-keep-selection className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[61] flex items-center gap-3 bg-slate-900 border border-slate-700 text-slate-100 text-sm pl-4 pr-2 py-2 rounded-xl shadow-2xl print:hidden">
+        <div data-keep-selection className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[61] flex items-center gap-3 bg-slate-900 border border-slate-700 text-slate-100 text-sm pl-4 pr-2 py-2 rounded-xl shadow-xl print:hidden">
           <span>Recuperamos tu trabajo anterior.</span>
           <button type="button" onClick={() => { skipSave.current = true; void clearDoc().then(() => window.location.reload()); }} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 hover:border-slate-400">Empezar de cero</button>
           <button type="button" onClick={() => setRestoreNote(false)} className="text-xs px-2 py-1.5 text-slate-400">OK</button>
@@ -632,7 +681,7 @@ export function DocumentEditorApp() {
       {notice && (
         <div
           onAnimationEnd={() => undefined}
-          className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden"
+          className="fixed bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white text-sm px-4 py-3 rounded-lg shadow-xl max-w-sm print:hidden"
           onClick={() => setNotice(null)}
         >
           {notice}
@@ -640,7 +689,7 @@ export function DocumentEditorApp() {
       )}
 
       {errorMessage && (
-        <div className="fixed bottom-4 right-4 z-[60] bg-rose-600 text-white text-sm px-4 py-3 rounded-lg shadow-2xl max-w-sm print:hidden">
+        <div className="fixed bottom-4 right-4 z-[60] bg-rose-600 text-white text-sm px-4 py-3 rounded-lg shadow-xl max-w-sm print:hidden">
           {errorMessage}
         </div>
       )}

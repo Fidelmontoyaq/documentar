@@ -85,8 +85,8 @@ export function BatchBgModal({ open, onClose, onAfter }: { open: boolean; onClos
   const dataUrlToBlob = async (d: string) => (await fetch(d)).blob();
 
   return (
-    <div data-keep-selection className="fixed inset-0 z-[86] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 print:hidden">
-      <div className="w-full sm:max-w-3xl max-h-[94dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-2xl">
+    <div data-keep-selection className="fixed inset-0 z-[86] bg-slate-950/70 flex items-end sm:items-center justify-center sm:p-4 print:hidden">
+      <div className="w-full sm:max-w-3xl max-h-[94dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-xl">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
           <RemoveBgIcon className="w-5 h-5 text-blue-600" />
           <h2 className="text-base font-bold text-white mr-auto">Quitar fondo a mis imágenes</h2>

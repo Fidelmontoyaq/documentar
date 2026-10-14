@@ -51,8 +51,8 @@ const GROUPS: { title: string; items: [string[], string][] }[] = [
 export function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
   return (
-    <div data-keep-selection className="fixed inset-0 z-[90] bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 print:hidden" onClick={onClose}>
-      <div className="w-full sm:max-w-2xl max-h-[92dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div data-keep-selection className="fixed inset-0 z-[90] bg-slate-950/70 flex items-end sm:items-center justify-center sm:p-4 print:hidden" onClick={onClose}>
+      <div className="w-full sm:max-w-2xl max-h-[92dvh] flex flex-col bg-slate-900 sm:rounded-2xl rounded-t-2xl border border-slate-700 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-800">
           <span className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-500 flex items-center justify-center"><Keyboard className="w-4 h-4" /></span>
           <h2 className="text-base font-bold text-white mr-auto">Atajos de teclado</h2>

@@ -44,26 +44,68 @@ interface PanelProps {
 export function ThumbnailPanel({ engine, pageIds, activeId, version, mobileOpen, onCloseMobile, onPresent }: PanelProps) {
   const activeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest' }); }, [activeId, mobileOpen]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [over, setOver] = useState<{ id: string; after: boolean } | null>(null);
   if (!engine) return null;
+
+  const drop = () => {
+    if (dragId && over && dragId !== over.id) {
+      const rest = pageIds.filter((x) => x !== dragId);
+      let at = rest.indexOf(over.id) + (over.after ? 1 : 0);
+      if (at < 0) at = rest.length;
+      engine.reorderPages([...rest.slice(0, at), dragId, ...rest.slice(at)]);
+    }
+    setDragId(null);
+    setOver(null);
+  };
 
   const list = (w: number, after?: () => void) =>
     pageIds.map((id, i) => {
       const on = id === activeId;
+      const line = over?.id === id && dragId && dragId !== id;
       return (
-        <button
+        <div
           key={id}
-          ref={on ? activeRef : undefined}
-          type="button"
-          data-keep-selection
-          onClick={() => { engine.scrollToPage(id); after?.(); }}
-          title={`Ir a la hoja ${i + 1}`}
-          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition ${on ? 'bg-blue-600/15' : 'hover:bg-slate-800/70'}`}
+          className="group relative"
+          draggable
+          onDragStart={(e) => { setDragId(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); }}
+          onDragEnd={() => { setDragId(null); setOver(null); }}
+          onDragOver={(e) => {
+            if (!dragId) return;
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            const afterHalf = e.clientY > r.top + r.height / 2;
+            setOver((p) => (p && p.id === id && p.after === afterHalf ? p : { id, after: afterHalf }));
+          }}
+          onDrop={(e) => { e.preventDefault(); drop(); }}
+          style={{ opacity: dragId === id ? 0.4 : 1 }}
         >
-          <div className={`rounded-sm shadow ${on ? 'ring-2 ring-blue-600' : 'ring-1 ring-slate-700'}`}>
-            <Thumb engine={engine} id={id} width={w} version={version} />
-          </div>
-          <span className={`text-[11px] ${on ? 'text-blue-600 font-semibold' : 'text-slate-400'}`}>{i + 1}</span>
-        </button>
+          {line && !over!.after && <div className="absolute -top-0.5 left-1 right-1 h-1 rounded bg-blue-500 z-10" />}
+          {line && over!.after && <div className="absolute -bottom-0.5 left-1 right-1 h-1 rounded bg-blue-500 z-10" />}
+          <button
+            ref={on ? activeRef : undefined}
+            type="button"
+            data-keep-selection
+            onClick={() => { engine.scrollToPage(id); after?.(); }}
+            onKeyDown={(e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); engine.deletePage(id); } }}
+            title={`Ir a la hoja ${i + 1} · arrastra para moverla · Supr para eliminarla`}
+            className={`flex flex-col items-center gap-1 p-1.5 rounded-lg transition cursor-grab active:cursor-grabbing ${on ? 'bg-blue-600/15' : 'hover:bg-slate-800/70'}`}
+          >
+            <div className={`rounded-sm shadow ${on ? 'ring-2 ring-blue-600' : 'ring-1 ring-slate-700'}`}>
+              <Thumb engine={engine} id={id} width={w} version={version} />
+            </div>
+            <span className={`text-[11px] ${on ? 'text-blue-600 font-semibold' : 'text-slate-400'}`}>{i + 1}</span>
+          </button>
+          <button
+            type="button"
+            data-keep-selection
+            title="Eliminar esta hoja"
+            onClick={(e) => { e.stopPropagation(); engine.deletePage(id); }}
+            className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center bg-slate-800 border border-slate-500 text-slate-100 shadow opacity-0 group-hover:opacity-100 max-md:opacity-100 hover:bg-rose-600 hover:border-rose-600 hover:text-white transition-opacity"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
       );
     });
 
@@ -82,7 +124,7 @@ export function ThumbnailPanel({ engine, pageIds, activeId, version, mobileOpen,
       {mobileOpen && <div className="md:hidden fixed inset-0 z-[55] bg-slate-950/50" onClick={onCloseMobile} />}
       <div
         data-keep-selection
-        className={`md:hidden fixed inset-x-0 bottom-0 z-[56] bg-slate-900 border-t border-slate-700 rounded-t-2xl shadow-2xl max-h-[70dvh] flex flex-col transition-transform duration-200 ${mobileOpen ? 'translate-y-0' : 'translate-y-full pointer-events-none'}`}
+        className={`md:hidden fixed inset-x-0 bottom-0 z-[56] bg-slate-900 border-t border-slate-700 rounded-t-2xl shadow-xl max-h-[70dvh] flex flex-col transition-transform duration-200 ${mobileOpen ? 'translate-y-0' : 'translate-y-full pointer-events-none'}`}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div className="text-sm font-bold text-white">Hojas ({pageIds.length})</div>
@@ -185,8 +227,8 @@ export function PresentationView({ engine, open, startIndex, onClose }: { engine
       }}
     >
       <div ref={stage} />
-      <button type="button" onClick={onClose} title="Salir (Esc)" className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center backdrop-blur"><X className="w-5 h-5" /></button>
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/15 backdrop-blur text-white rounded-full px-2 py-1">
+      <button type="button" onClick={onClose} title="Salir (Esc)" className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"><X className="w-5 h-5" /></button>
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/15 text-white rounded-full px-2 py-1">
         <button type="button" disabled={i === 0} onClick={() => setI(i - 1)} className="w-9 h-9 flex items-center justify-center disabled:opacity-30"><ChevronLeft className="w-5 h-5" /></button>
         <span className="text-sm tabular-nums">{i + 1} / {ids.length}</span>
         <button type="button" disabled={i >= ids.length - 1} onClick={() => setI(i + 1)} className="w-9 h-9 flex items-center justify-center disabled:opacity-30"><ChevronRight className="w-5 h-5" /></button>

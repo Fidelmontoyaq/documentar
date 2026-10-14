@@ -31,8 +31,8 @@ export function ExportDialog({ open, onClose, onExport, pageCount, info }: Expor
 
   return createPortal(
     <div className="de-portal"><div data-keep-selection className="fixed inset-0 z-[80] flex items-end md:items-center justify-center md:p-4 print:hidden">
-      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-700 shadow-2xl w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-4 space-y-4">
+      <div className="absolute inset-0 bg-slate-950/75" onClick={onClose} />
+      <div className="relative bg-slate-900 border border-slate-700 shadow-xl w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-white font-bold text-base">Compartir</h2>
           <button type="button" onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"><X className="w-4 h-4" /></button>

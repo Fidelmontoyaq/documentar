@@ -4,7 +4,7 @@ import {
   List, Palette, Copy, ClipboardPaste,
   ArrowUpWideNarrow, ArrowDownWideNarrow, Trash2,
   Undo2, Redo2, PaintBucket, Ban, RotateCcw, CopyPlus, Layers, Crop,
-  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Eraser, ChevronDown, MoreHorizontal,
+  PanelTop, PanelRight, PanelBottom, PanelLeft, Square, ZoomIn, ZoomOut, ImagePlus, Maximize, Minimize, ImageOff, Eraser, ChevronDown, MoreHorizontal, SlidersHorizontal, Group, Ungroup, Download,
 } from 'lucide-react';
 function CurveIcon() {
   return (
@@ -53,6 +53,10 @@ interface ElementToolbarProps {
   onSticker: (opts: { width: number; color: string; shadow: boolean } | null) => void;
   onRemoveBg: () => void;
   onRemoveObj: () => void;
+  onImageTools: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  onSaveImage: (format: 'png' | 'jpg') => void;
   getCurve: () => { cfg: { mode: 'up' | 'down' | 'circle'; sweep: number; spacing: number } | null; text: string } | null;
   onCurve: (cfg: { mode: 'up' | 'down' | 'circle'; sweep: number; spacing: number } | null, text?: string) => void;
   pdfEditOn?: boolean;
@@ -70,7 +74,7 @@ export function ElementToolbar({
   onFormat, onApplyFont, onApplyFontSize, onSaveSelection,
   onDuplicate, onLayer, onDelete, onSetFill, onCaptionGap, onCaptionReset, onCaptionGapAll,
   onToggleCrop, onResetCrop, onCropZoom, onRadius, onShapeProps, onToggleSide, onAllSides,
-  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, onRemoveObj, getCurve, onCurve, pdfEditOn,
+  onPickFrameImage, onClearFrameImage, onFrameFit, pageInfo, onOpenCanvas, onSticker, onRemoveBg, onRemoveObj, onImageTools, onGroup, onUngroup, onSaveImage, getCurve, onCurve, pdfEditOn,
 }: ElementToolbarProps) {
   const [stickerOpen, setStickerOpen] = useState(false);
   const [curveOpen, setCurveOpen] = useState(false);
@@ -158,6 +162,22 @@ export function ElementToolbar({
           </button>
           <button type="button" className={`et-btn gap-1 ${stickerOpen ? '!bg-slate-700 !text-white' : ''}`} title="Borde de sticker: contorno alrededor de la figura" onMouseDown={keep} onClick={() => setStickerOpen((v) => !v)}>
             <StickerIcon className="w-4 h-4" /> <span>Sticker</span>
+          </button>
+          <button type="button" className="et-btn gap-1" title="Ajustes: tamaño, saturación, grises, blanco y negro, tonos y guardar como imagen" onMouseDown={keep} onClick={onImageTools}>
+            <SlidersHorizontal className="w-4 h-4" /> <span>Ajustes</span>
+          </button>
+          {(state?.selCount ?? 0) > 1 && (
+            <button type="button" className="et-btn gap-1" title="Agrupar las imágenes seleccionadas: se mueven y se guardan juntas" onMouseDown={keep} onClick={onGroup}>
+              <Group className="w-4 h-4" /> <span>Agrupar ({state?.selCount})</span>
+            </button>
+          )}
+          {state?.grouped && (
+            <button type="button" className="et-btn gap-1" title="Separar el grupo" onMouseDown={keep} onClick={onUngroup}>
+              <Ungroup className="w-4 h-4" /> <span>Desagrupar</span>
+            </button>
+          )}
+          <button type="button" className="et-btn gap-1" title="Guardar solo esta imagen como PNG (con su fondo quitado, recorte y cambios)" onMouseDown={keep} onClick={() => onSaveImage('png')}>
+            <Download className="w-4 h-4" /> <span>Guardar</span>
           </button>
         </>
       )}
@@ -354,7 +374,7 @@ export function ElementToolbar({
       )}
 
       {curveOpen && state?.boxType === 'text' && (
-        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3">
+        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-3 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-white">Texto curvo</span>
             <button type="button" className="text-slate-400 hover:text-white text-xs" onClick={() => setCurveOpen(false)}>Cerrar</button>
@@ -382,7 +402,7 @@ export function ElementToolbar({
       )}
 
       {isImage && stickerOpen && (
-        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 space-y-3">
+        <div data-keep-selection className="fixed z-[78] left-2 right-2 md:left-auto md:right-6 top-[110px] md:w-[300px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-3 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-bold text-white">Borde de sticker</span>
             <button type="button" className="text-slate-400 hover:text-white text-xs" onClick={() => setStickerOpen(false)}>Cerrar</button>
@@ -403,6 +423,7 @@ export function ElementToolbar({
             <button type="button" onClick={() => onSticker({ width: stW, color: stColor, shadow: stShadow })} className="flex-1 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white">Aplicar</button>
             <button type="button" onClick={() => onSticker(null)} className="px-3 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Quitar</button>
           </div>
+          <button type="button" onClick={() => onSaveImage('png')} className="w-full py-2 rounded-lg text-sm font-medium border border-slate-600 text-slate-100 hover:bg-slate-800 flex items-center justify-center gap-1.5"><Download className="w-4 h-4" /> Guardar sticker como PNG</button>
         </div>
       )}
     </div>

@@ -29,6 +29,10 @@ import {
   ChevronDown,
   Plus,
   Eraser,
+  ArrowDown01,
+  ArrowRight,
+  Layers,
+  Files,
 } from 'lucide-react';
 import type { DocumentEditorEngine } from '../../engine/DocumentEditorEngine';
 import { fileExtension } from '../../engine/fileUtils';
@@ -38,24 +42,26 @@ interface PageOrganizerModalProps {
   onClose: () => void;
   engine: DocumentEditorEngine | null;
   history: { canUndo: boolean; canRedo: boolean };
+  /** Cambia cada vez que el documento cambia (para refrescar el organizador si algo ocurre fuera de él). */
+  contentVersion?: number;
 }
 
 type ViewMode = 'small' | 'medium' | 'large' | 'list';
 const THUMB_WIDTH: Record<ViewMode, number> = { small: 108, medium: 170, large: 240, list: 72 };
 
-// Paleta de colores para distinguir de un vistazo a qué archivo pertenece cada hoja.
-// Se evita el azul a propósito: es el color que ya usa la selección.
+// Cada archivo tiene su color (como en iLovePDF): un tono suave para el fondo y uno más fuerte para el borde.
 const PALETTE = [
-  { border: 'border-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500' },
-  { border: 'border-fuchsia-500', text: 'text-fuchsia-400', bg: 'bg-fuchsia-500' },
-  { border: 'border-amber-500', text: 'text-amber-400', bg: 'bg-amber-500' },
-  { border: 'border-cyan-500', text: 'text-cyan-400', bg: 'bg-cyan-500' },
-  { border: 'border-rose-500', text: 'text-rose-400', bg: 'bg-rose-500' },
-  { border: 'border-lime-500', text: 'text-lime-400', bg: 'bg-lime-500' },
-  { border: 'border-violet-500', text: 'text-violet-400', bg: 'bg-violet-500' },
-  { border: 'border-orange-500', text: 'text-orange-400', bg: 'bg-orange-500' },
+  { soft: '#ffd3d7', strong: '#f28b95', text: '#7a2a33' },
+  { soft: '#b9ecf5', strong: '#5ccbe0', text: '#124a56' },
+  { soft: '#ffe9a9', strong: '#f0c24a', text: '#6b5210' },
+  { soft: '#e3d6ff', strong: '#b79af5', text: '#4a2f85' },
+  { soft: '#cdeccb', strong: '#80c77c', text: '#235a22' },
+  { soft: '#ffdcbc', strong: '#f5a361', text: '#7a3d0b' },
+  { soft: '#d3e2ff', strong: '#8aaef0', text: '#23428a' },
+  { soft: '#e6f2b5', strong: '#b4d24f', text: '#4a5a0b' },
 ];
-const NO_GROUP = { border: 'border-slate-700', text: 'text-slate-400', bg: 'bg-slate-600' };
+type Tone = (typeof PALETTE)[number];
+const NO_GROUP: Tone = { soft: 'rgba(148,163,184,.14)', strong: '#94a3b8', text: '#64748b' };
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
 /** Miniatura de una hoja: se construye solo cuando está a la vista (con 500 hojas no se dibuja todo de golpe). */
@@ -90,7 +96,7 @@ function Thumb({ engine, id, version, width }: { engine: DocumentEditorEngine; i
  * todas sus hojas de una vez. El resto de las hojas se acomoda en vivo,
  * antes de soltar, de forma estable (sin parpadeos).
  */
-export function PageOrganizerModal({ open, onClose, engine, history }: PageOrganizerModalProps) {
+export function PageOrganizerModal({ open, onClose, engine, history, contentVersion }: PageOrganizerModalProps) {
   const [ids, setIds] = useState<string[]>([]);
   const [groupsById, setGroupsById] = useState<Map<string, { groupId: string | null; label: string | null }>>(
     new Map()
@@ -107,6 +113,9 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
   const [busy, setBusy] = useState<string | null>(null);
   const [fileDragId, setFileDragId] = useState<string | null>(null);
   const [fileOver, setFileOver] = useState<string | null>(null);
+  const initialOrder = useRef<string[]>([]);
+  const sortDir = useRef<{ az: boolean; num: boolean }>({ az: true, num: true });
+  const [filesOpen, setFilesOpen] = useState(false);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const insertInputRef = useRef<HTMLInputElement>(null);
   const pendingReplace = useRef<string[]>([]);
@@ -132,14 +141,27 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
   useEffect(() => {
     if (!open || !engine) return;
     refresh();
+    initialOrder.current = engine.getPageIds();
     setSelected([]);
     lastClicked.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, engine]);
 
+  useEffect(() => {
+    if (!open || !engine) return;
+    const t = window.setTimeout(() => {
+      const now = engine.getPageIds();
+      setIds((prev) => (prev.length === now.length && prev.every((x, i) => x === now[i]) ? prev : now));
+      setSelected((sel) => sel.filter((x) => now.includes(x)));
+      setGroupsById(new Map(engine.getPageGroups().map((g) => [g.id, { groupId: g.groupId, label: g.label }])));
+    }, 60);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentVersion]);
+
   // ----- color por grupo (archivo de origen), estable mientras dure la sesión del modal -----
   const colorByGroup = useMemo(() => {
-    const map = new Map<string, (typeof PALETTE)[number]>();
+    const map = new Map<string, Tone>();
     let i = 0;
     ids.forEach((id) => {
       const g = groupsById.get(id)?.groupId;
@@ -364,10 +386,18 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
     engine.reorderPages(next);
     refresh();
   };
-  const sortFiles = (mode: 'az' | 'reverse' | 'weave') => {
-    if (mode === 'az') applyFileOrder([...files].sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true })));
-    else if (mode === 'reverse') applyFileOrder([...files].reverse());
-    else {
+  const sortFiles = (mode: 'az' | 'num' | 'weave') => {
+    if (mode === 'az') {
+      const asc = sortDir.current.az;
+      sortDir.current.az = !asc;
+      const sorted = [...files].sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+      applyFileOrder(asc ? sorted : sorted.reverse());
+    } else if (mode === 'num') {
+      const asc = sortDir.current.num;
+      sortDir.current.num = !asc;
+      const sorted = [...files].sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true, sensitivity: 'base' }));
+      applyFileOrder(asc ? sorted : sorted.reverse());
+    } else {
       // 1-1 2-2: una hoja de cada archivo por vuelta (útil para unir anverso y reverso escaneados).
       const max = Math.max(...files.map((f) => f.ids.length));
       const next: string[] = [];
@@ -376,6 +406,17 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       engine?.reorderPages(next);
       refresh();
     }
+  };
+  /** Vuelve al orden que tenían las hojas al abrir el organizador. */
+  const resetOrder = () => {
+    if (!engine) return;
+    const now = engine.getPageIds();
+    const kept = initialOrder.current.filter((id) => now.includes(id));
+    const added = now.filter((id) => !kept.includes(id));
+    const next = [...kept, ...added];
+    setIds(next);
+    engine.reorderPages(next);
+    refresh();
   };
   const moveFile = (key: string, dir: -1 | 1) => {
     const i = files.findIndex((f) => f.key === key);
@@ -551,9 +592,13 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
     if (e.currentTarget === e.target) setDropHint(null);
   };
 
-  const tb =
-    'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition';
+  const tool =
+    'flex flex-col items-center justify-center gap-0.5 min-w-[46px] px-2 py-1.5 rounded-lg text-[10px] leading-none font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition shrink-0';
   const none = group.length === 0;
+  const fab =
+    'w-10 h-10 rounded-full flex items-center justify-center bg-slate-800 border border-slate-600 text-slate-100 shadow-md hover:bg-slate-700 transition';
+  const round =
+    'w-7 h-7 rounded-full flex items-center justify-center bg-slate-800 border border-slate-500 text-slate-100 shadow hover:bg-slate-700';
 
   // Etiqueta de archivo a mostrar encima (o a la izquierda, en lista) de cada bloque contiguo del mismo grupo.
   const groupPillAt = (index: number): { groupId: string; label: string; count: number } | null => {
@@ -577,17 +622,16 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
     { id: 'list', label: 'Lista', icon: Rows3 },
   ];
 
+  const Sep = () => <span className="w-px h-7 bg-slate-700 mx-1 shrink-0" />;
+
   return (
-    <div className={`fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-40 print:hidden ${open ? 'flex flex-col' : 'hidden'}`}>
-      <div className="flex items-center justify-between px-3 md:px-6 py-3 md:py-4 border-b border-slate-800 shrink-0">
-        <div>
-          <h2 className="text-white font-bold text-lg">Organizar Páginas</h2>
-          <p className="text-xs text-slate-400">
-            Cada color de borde es un archivo distinto. Arrastra un recuadro sobre el fondo para seleccionar
-            varias, o suelta imágenes/archivos aquí mismo.
-          </p>
+    <div className={`fixed inset-0 bg-slate-950 z-40 print:hidden ${open ? 'flex flex-col' : 'hidden'}`}>
+      <div className="flex items-center justify-between gap-2 px-3 md:px-5 py-2.5 border-b border-slate-800 shrink-0">
+        <div className="min-w-0">
+          <h2 className="text-white font-bold text-base leading-tight">Ordenar páginas</h2>
+          <p className="text-[11px] text-slate-400 truncate">Arrastra para ordenar · pasa el mouse sobre una hoja para ampliar, girar o quitar</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
             {VIEW_OPTIONS.map((v) => {
               const Icon = v.icon;
@@ -597,8 +641,8 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                   type="button"
                   title={v.label}
                   onClick={() => setViewMode(v.id)}
-                  className={`w-8 h-8 flex items-center justify-center rounded-md transition ${
-                    viewMode === v.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+                  className={`w-7 h-7 flex items-center justify-center rounded-md transition ${
+                    viewMode === v.id ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -606,15 +650,15 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
               );
             })}
           </div>
-          <button type="button" onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700">
+          <button type="button" onClick={onClose} title="Cerrar" className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700">
             <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      <div className="flex md:flex-wrap items-center gap-2 px-3 md:px-6 py-2 md:py-3 border-b border-slate-800 shrink-0 max-md:overflow-x-auto max-md:[&>*]:shrink-0">
-        <button type="button" className={tb} onClick={() => fileInputRef.current?.click()}>
-          <FilePlus2 className="w-3.5 h-3.5" /> Agregar archivos
+      <div className="flex items-center gap-0.5 px-2 md:px-4 py-1.5 border-b border-slate-800 shrink-0 overflow-x-auto">
+        <button type="button" className={tool} onClick={() => fileInputRef.current?.click()} title="Agregar archivos al final">
+          <FilePlus2 className="w-4 h-4" /> Agregar
         </button>
         <input
           ref={fileInputRef}
@@ -636,54 +680,30 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
           const f = Array.from(e.target.files ?? []); e.target.value = '';
           if (f.length) void addFilesAt(f, pendingInsert.current);
         }} />
-        <span className="w-px h-6 bg-slate-700 mx-1" />
-        <button type="button" className={tb} onClick={handleUndo} disabled={!history.canUndo} title="Deshacer (Ctrl+Z)">
-          <Undo2 className="w-3.5 h-3.5" /> Deshacer
-        </button>
-        <button type="button" className={tb} onClick={handleRedo} disabled={!history.canRedo} title="Rehacer (Ctrl+Y)">
-          <Redo2 className="w-3.5 h-3.5" /> Rehacer
-        </button>
-        <span className="w-px h-6 bg-slate-700 mx-1" />
-        <button type="button" className={tb} onClick={() => setSelected(ids)}>
-          <CheckSquare className="w-3.5 h-3.5" /> Seleccionar todo
-        </button>
-        <button type="button" className={tb} disabled={none} onClick={() => setSelected([])}>
-          <Square className="w-3.5 h-3.5" /> Limpiar
-        </button>
-        <span className="w-px h-6 bg-slate-700 mx-1" />
-        <button type="button" className={tb} disabled={none} onClick={() => moveToEdge('start')} title="Mover al inicio">
-          <ChevronsLeft className="w-3.5 h-3.5" /> Inicio
-        </button>
-        <button type="button" className={tb} disabled={none} onClick={() => nudge(-1)} title="Una posición atrás">
-          <ChevronLeft className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" className={tb} disabled={none} onClick={() => nudge(1)} title="Una posición adelante">
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" className={tb} disabled={none} onClick={() => moveToEdge('end')} title="Mover al final">
-          Final <ChevronsRight className="w-3.5 h-3.5" />
-        </button>
-        <span className="w-px h-6 bg-slate-700 mx-1" />
-        <button type="button" className={tb} disabled={none} onClick={duplicateSelected}>
-          <Copy className="w-3.5 h-3.5" /> Duplicar
-        </button>
-        <button type="button" className={`${tb} hover:!bg-rose-700`} disabled={none} onClick={deleteSelected}>
-          <Trash2 className="w-3.5 h-3.5" /> Eliminar
-        </button>
-        <button type="button" className={tb} disabled={none} onClick={() => startReplace(group)} title="Reemplaza las hojas marcadas por otro archivo u hoja, en el mismo lugar">
-          <Replace className="w-3.5 h-3.5" /> Reemplazar
-        </button>
-        <button type="button" className={`${tb} hover:!bg-rose-700`} onClick={() => engine?.requestClearAll()} title="Borrar todas las hojas y empezar de nuevo">
-          <Eraser className="w-3.5 h-3.5" /> Vaciar todo
-        </button>
-        <span className="ml-auto text-xs text-slate-400">
-          {group.length} de {ids.length} seleccionadas
-        </span>
+        <Sep />
+        <button type="button" className={tool} onClick={handleUndo} disabled={!history.canUndo} title="Deshacer (Ctrl+Z)"><Undo2 className="w-4 h-4" /> Deshacer</button>
+        <button type="button" className={tool} onClick={handleRedo} disabled={!history.canRedo} title="Rehacer (Ctrl+Y)"><Redo2 className="w-4 h-4" /> Rehacer</button>
+        <Sep />
+        <button type="button" className={tool} onClick={() => setSelected(ids)} title="Marcar todas las hojas"><CheckSquare className="w-4 h-4" /> Todas</button>
+        <button type="button" className={tool} disabled={none} onClick={() => setSelected([])} title="Quitar la selección"><Square className="w-4 h-4" /> Ninguna</button>
+        <Sep />
+        <button type="button" className={tool} disabled={none} onClick={() => moveToEdge('start')} title="Mover al inicio"><ChevronsLeft className="w-4 h-4" /> Inicio</button>
+        <button type="button" className={tool} disabled={none} onClick={() => nudge(-1)} title="Una posición atrás"><ChevronLeft className="w-4 h-4" /> Atrás</button>
+        <button type="button" className={tool} disabled={none} onClick={() => nudge(1)} title="Una posición adelante"><ChevronRight className="w-4 h-4" /> Adelante</button>
+        <button type="button" className={tool} disabled={none} onClick={() => moveToEdge('end')} title="Mover al final"><ChevronsRight className="w-4 h-4" /> Final</button>
+        <Sep />
+        <button type="button" className={tool} disabled={none} onClick={duplicateSelected} title="Duplicar las hojas marcadas"><Copy className="w-4 h-4" /> Duplicar</button>
+        <button type="button" className={tool} disabled={none} onClick={() => startReplace(group)} title="Reemplaza las hojas marcadas por otro archivo u hoja, en el mismo lugar"><Replace className="w-4 h-4" /> Reemplazar</button>
+        <button type="button" className={`${tool} hover:!bg-rose-700 hover:!text-white`} disabled={none} onClick={deleteSelected} title="Eliminar las hojas marcadas (Supr)"><Trash2 className="w-4 h-4" /> Eliminar</button>
+        <Sep />
+        <button type="button" className={`${tool} hover:!bg-rose-700 hover:!text-white`} onClick={() => engine?.requestClearAll()} title="Borrar todas las hojas"><Eraser className="w-4 h-4" /> Vaciar</button>
+        <button type="button" className={`${tool} md:hidden ml-auto`} onClick={() => setFilesOpen(true)} title="Ver y ordenar los archivos"><Files className="w-4 h-4" /> Archivos</button>
+        <span className="ml-auto max-md:ml-2 text-[11px] text-slate-400 whitespace-nowrap pl-2">{group.length ? `${group.length} de ${ids.length}` : `${ids.length} hoja${ids.length === 1 ? '' : 's'}`}</span>
       </div>
 
       <div className="flex-1 min-h-0 flex">
       <div
-        className="flex-1 min-w-0 overflow-y-auto p-3 md:p-6 relative"
+        className="flex-1 min-w-0 overflow-y-auto p-3 md:p-6 md:pr-20 relative"
         onDragOver={handleGridDragOver}
         onDrop={(e) => void handleGridDrop(e)}
         onDragEnter={handleGridDragEnter}
@@ -692,12 +712,18 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       >
         {dropHint && (
           <div className="sticky top-0 z-10 mb-3 text-center text-xs font-medium text-blue-300 bg-blue-500/10 border border-dashed border-blue-500/40 rounded-lg py-2">
-            {dropHint} — imágenes se añaden a la hoja donde las sueltes; PDF/Word entran como archivos nuevos
+            {dropHint}
+          </div>
+        )}
+        {!ids.length && (
+          <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center text-slate-400 gap-3">
+            <Files className="w-10 h-10 opacity-60" />
+            <p className="text-sm">No hay hojas. Suelta aquí un PDF, Word o imágenes, o pulsa Agregar.</p>
           </div>
         )}
         <div
           ref={gridRef}
-          className={isList ? 'flex flex-col gap-2' : 'flex flex-wrap gap-x-6 gap-y-10 items-start'}
+          className={isList ? 'flex flex-col gap-2' : 'flex flex-wrap gap-x-14 gap-y-10 items-start pt-5 pl-5'}
         >
           {engine &&
             displayIds.map((id, index) => {
@@ -709,6 +735,7 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
               const pill = groupPillAt(index);
               const originalIndex = ids.indexOf(id);
               const label = groupsById.get(id)?.label;
+              const prevId = ids[originalIndex - 1] ?? null;
 
               if (isList) {
                 return (
@@ -720,7 +747,8 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                         onDragEnd={handleDragEnd}
                         title={`Arrastra para mover las ${pill.count} hojas de "${pill.label}" juntas`}
                         data-group-pill
-                        className={`flex items-center gap-1 px-2 py-1 mb-1 rounded-md text-[10px] font-medium text-white cursor-grab active:cursor-grabbing w-fit max-w-[260px] truncate ${color.bg}`}
+                        style={{ background: color.strong, color: color.text }}
+                        className="flex items-center gap-1 px-2 py-1 mb-1 rounded-md text-[10px] font-semibold cursor-grab active:cursor-grabbing w-fit max-w-[260px] truncate"
                       >
                         <GripVertical className="w-3 h-3 shrink-0" />
                         <span className="truncate">{pill.label}</span>
@@ -737,38 +765,37 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                         engine.scrollToPage(id);
                         onClose();
                       }}
-                      className={`relative flex items-center gap-3 rounded-lg border-[3px] px-3 py-2 cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${color.border} ${
-                        isSel ? 'bg-amber-400/10 ring-2 ring-amber-400' : 'bg-slate-900 hover:bg-slate-800/70'
+                      style={{ borderColor: color.strong, background: isSel ? undefined : color.soft }}
+                      className={`group relative flex items-center gap-3 rounded-lg border-2 px-3 py-2 cursor-grab active:cursor-grabbing select-none transition ${
+                        isSel ? 'bg-blue-500/15 ring-2 ring-blue-500' : ''
                       } ${draggingIds.includes(id) ? 'thumb-dragging' : ''}`}
                     >
-                      {showBefore && <div className="absolute left-2 right-2 -top-1.5 h-1 rounded bg-white thumb-drop-line" />}
-                      {showAfter && <div className="absolute left-2 right-2 -bottom-1.5 h-1 rounded bg-white thumb-drop-line" />}
-                      <span
-                        className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center border-2 shadow ${
-                          isSel ? 'bg-slate-950 border-amber-400' : 'bg-slate-950/90 border-slate-400'
-                        }`}
-                      >
-                        {isSel ? <CheckSquare className="w-4 h-4 text-amber-400" /> : <Square className="w-4 h-4 text-slate-300" />}
-                      </span>
-                      <div className="shrink-0 w-[72px] rounded overflow-hidden border border-slate-700">
+                      {showBefore && <div className="absolute left-2 right-2 -top-1.5 h-1 rounded bg-blue-500 thumb-drop-line" />}
+                      {showAfter && <div className="absolute left-2 right-2 -bottom-1.5 h-1 rounded bg-blue-500 thumb-drop-line" />}
+                      <div className="shrink-0 w-[72px] rounded overflow-hidden border border-slate-300 bg-white">
                         <Thumb engine={engine} id={id} version={version} width={thumbWidth} />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className={`text-sm font-medium ${color.text}`}>Página {originalIndex + 1}</div>
-                        {label && <div className="text-[11px] text-slate-500 truncate">{label}</div>}
+                      <div className="min-w-0 flex-1" style={{ color: isSel ? undefined : color.text }}>
+                        <div className="text-sm font-semibold">Página {originalIndex + 1}</div>
+                        {label && <div className="text-[11px] opacity-70 truncate">{label}</div>}
                       </div>
                       {broken && (
                         <span title={`"${label}" quedó dividido entre varios grupos de hojas`} className="shrink-0">
-                          <SplitSquareHorizontal className="w-4 h-4 text-orange-400" />
+                          <SplitSquareHorizontal className="w-4 h-4 text-orange-500" />
                         </span>
                       )}
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity">
+                        <button type="button" title="Ampliar" className={round} onClick={(e) => { e.stopPropagation(); setPreviewId(id); }}><ZoomIn className="w-3.5 h-3.5" /></button>
+                        <button type="button" title="Girar" className={round} onClick={(e) => { e.stopPropagation(); void rotatePage(id); }}><RotateCw className="w-3.5 h-3.5" /></button>
+                        <button type="button" title="Eliminar" className={round} onClick={(e) => { e.stopPropagation(); removeFile([id]); }}><X className="w-3.5 h-3.5" /></button>
+                      </div>
                     </div>
                   </div>
                 );
               }
 
               return (
-                <div key={id} className="relative" style={{ width: thumbWidth }}>
+                <div key={id} className="relative group" style={{ width: thumbWidth + 16 }}>
                   {pill && (
                     <div
                       draggable
@@ -776,7 +803,8 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                       onDragEnd={handleDragEnd}
                       title={`Arrastra para mover las ${pill.count} hojas de "${pill.label}" juntas`}
                       data-group-pill
-                      className={`absolute -top-7 left-0 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-white cursor-grab active:cursor-grabbing max-w-full truncate ${color.bg}`}
+                      style={{ background: color.strong, color: color.text }}
+                      className="absolute -top-7 left-0 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold cursor-grab active:cursor-grabbing max-w-full truncate"
                     >
                       <GripVertical className="w-3 h-3 shrink-0" />
                       <span className="truncate">{pill.label}</span>
@@ -793,71 +821,87 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                       engine.scrollToPage(id);
                       onClose();
                     }}
-                    className={`group relative shrink-0 select-none cursor-grab active:cursor-grabbing transition-all duration-150 ${
-                      draggingIds.includes(id) ? 'thumb-dragging' : ''
-                    }`}
+                    style={{ borderColor: isSel ? undefined : color.strong, background: isSel ? undefined : color.soft }}
+                    className={`relative rounded-xl border-2 p-2 pb-1 select-none cursor-grab active:cursor-grabbing transition ${
+                      isSel ? 'border-blue-500 bg-blue-500/15 ring-2 ring-blue-500/60' : ''
+                    } ${draggingIds.includes(id) ? 'thumb-dragging' : ''}`}
                   >
-                    {showBefore && <div className="absolute -left-3.5 top-0 bottom-6 w-1 rounded bg-white thumb-drop-line" />}
-                    {showAfter && <div className="absolute -right-3.5 top-0 bottom-6 w-1 rounded bg-white thumb-drop-line" />}
-                    <div
-                      className={`rounded-lg overflow-hidden border-[3px] shadow transition-all duration-150 ${color.border} ${
-                        isSel ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-slate-950' : ''
-                      }`}
-                    >
+                    {showBefore && <div className="absolute -left-8 top-0 bottom-0 w-1 rounded bg-blue-500 thumb-drop-line" />}
+                    {showAfter && <div className="absolute -right-8 top-0 bottom-0 w-1 rounded bg-blue-500 thumb-drop-line" />}
+                    <div className="bg-white rounded-md overflow-hidden shadow-sm">
                       <Thumb engine={engine} id={id} version={version} width={thumbWidth} />
                     </div>
-                    {/* Insignia siempre con fondo sólido oscuro: se ve igual sobre una hoja blanca o de cualquier color. */}
+                    <span className="block text-center text-[11px] mt-1 font-medium" style={{ color: isSel ? undefined : color.text }}>{originalIndex + 1}</span>
+
+                    {/* Marca de selección: aparece al pasar el mouse o cuando la hoja está marcada. */}
                     <span
                       key={isSel ? `${id}-on` : `${id}-off`}
-                      className={`check-pop absolute top-1.5 left-1.5 w-6 h-6 rounded-md flex items-center justify-center border-2 shadow-lg ${
-                        isSel ? 'bg-slate-950 border-amber-400' : 'bg-slate-950/90 border-slate-400'
+                      className={`check-pop absolute top-1.5 left-1.5 w-5 h-5 rounded flex items-center justify-center border shadow ${
+                        isSel ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white/90 border-slate-400 text-transparent opacity-0 group-hover:opacity-100'
                       }`}
                     >
-                      {isSel ? <CheckSquare className="w-4 h-4 text-amber-400" /> : <Square className="w-4 h-4 text-slate-300" />}
+                      <CheckSquare className="w-3.5 h-3.5" />
                     </span>
-                    <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity max-md:opacity-100">
-                      {([
-                        ['Ver grande', ZoomIn, () => setPreviewId(id)],
-                        ['Girar la hoja', RotateCw, () => void rotatePage(id)],
-                        ['Reemplazar esta hoja', Replace, () => startReplace([id])],
-                        ['Eliminar', Trash2, () => removeFile([id])],
-                      ] as const).map(([t, Ic, fn]) => (
-                        <button key={t} type="button" title={t} onClick={(e) => { e.stopPropagation(); fn(); }} onMouseDown={(e) => e.stopPropagation()} className="w-6 h-6 rounded-md flex items-center justify-center bg-slate-950/90 border border-slate-500 text-slate-100 hover:bg-slate-700">
-                          <Ic className="w-3.5 h-3.5" />
-                        </button>
-                      ))}
-                    </div>
-                    <button type="button" title="Insertar un archivo después de esta hoja" onClick={(e) => { e.stopPropagation(); startInsert(id); }} onMouseDown={(e) => e.stopPropagation()} className="absolute -right-5 top-[40%] w-7 h-7 rounded-full flex items-center justify-center bg-slate-950 border-2 border-slate-400 text-white opacity-0 group-hover:opacity-100 hover:!bg-slate-700 z-10 max-md:hidden">
-                      <Plus className="w-4 h-4" />
-                    </button>
                     {broken && (
                       <span
                         title={`"${label}" quedó dividido entre varios grupos de hojas`}
-                        className="absolute bottom-7 left-1.5 w-6 h-6 rounded-md flex items-center justify-center bg-slate-950 border-2 border-orange-400 shadow-lg"
+                        className="absolute bottom-6 left-1.5 w-5 h-5 rounded flex items-center justify-center bg-white border border-orange-400 shadow"
                       >
-                        <SplitSquareHorizontal className="w-3.5 h-3.5 text-orange-400" />
+                        <SplitSquareHorizontal className="w-3 h-3 text-orange-500" />
                       </span>
                     )}
-                    <span className={`block text-center text-[11px] mt-1.5 ${color.text}`}>Página {originalIndex + 1}</span>
                   </div>
+
+                  {/* Acciones de la hoja (al pasar el mouse): ampliar, girar y quitar. */}
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex gap-1.5 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity z-10">
+                    <button type="button" title="Ampliar" onClick={(e) => { e.stopPropagation(); setPreviewId(id); }} onMouseDown={(e) => e.stopPropagation()} className={round}><ZoomIn className="w-3.5 h-3.5" /></button>
+                    <button type="button" title="Girar la hoja" onClick={(e) => { e.stopPropagation(); void rotatePage(id); }} onMouseDown={(e) => e.stopPropagation()} className={round}><RotateCw className="w-3.5 h-3.5" /></button>
+                    <button type="button" title="Quitar la hoja" onClick={(e) => { e.stopPropagation(); removeFile([id]); }} onMouseDown={(e) => e.stopPropagation()} className={round}><X className="w-3.5 h-3.5" /></button>
+                  </div>
+
+                  {/* Insertar páginas o archivos entre hojas (a cada lado de la hoja). */}
+                  <button type="button" title="Insertar antes de esta hoja" onClick={(e) => { e.stopPropagation(); startInsert(prevId); }} onMouseDown={(e) => e.stopPropagation()} className={`${fab} !w-8 !h-8 absolute -left-[38px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-10 max-md:hidden`}>
+                    <FilePlus2 className="w-4 h-4 text-blue-500" />
+                  </button>
+                  <button type="button" title="Insertar después de esta hoja" onClick={(e) => { e.stopPropagation(); startInsert(id); }} onMouseDown={(e) => e.stopPropagation()} className={`${fab} !w-8 !h-8 absolute -right-[38px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-10 max-md:hidden`}>
+                    <FilePlus2 className="w-4 h-4 text-blue-500" />
+                  </button>
                 </div>
               );
             })}
         </div>
       </div>
 
-      {/* Archivos (como en iLovePDF): cada color es un archivo; se reordenan, se reemplazan o se quitan completos. */}
-      <aside className="hidden md:flex w-[300px] shrink-0 flex-col border-l border-slate-800 bg-slate-900/60">
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white">Archivos <span className="text-slate-500 font-normal">· {files.length}</span></h3>
-          <button type="button" onClick={() => fileInputRef.current?.click()} title="Agregar archivos" className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: '#4a5aa8' }}><Plus className="w-4 h-4" /></button>
+      {/* Panel de archivos (como en iLovePDF): cada color es un archivo; arrástralos para reordenarlos. */}
+      {filesOpen && <div className="md:hidden fixed inset-0 z-[44] bg-slate-950/60" onClick={() => setFilesOpen(false)} />}
+      <aside className={`${filesOpen ? 'flex fixed inset-x-0 bottom-0 top-24 z-[45] rounded-t-2xl shadow-xl' : 'hidden'} md:flex md:!relative md:inset-auto md:z-auto md:rounded-none md:shadow-none md:w-[340px] shrink-0 flex-col border-l border-slate-800 bg-slate-900`}>
+        {/* Botones redondos a la izquierda del panel */}
+        <div className="hidden md:flex absolute right-full mr-3 top-5 flex-col items-center gap-2.5 z-10">
+          <button type="button" onClick={() => fileInputRef.current?.click()} title="Agregar archivos" className={`${fab} relative !bg-blue-600 !border-blue-600 !text-white !w-11 !h-11`} style={{ color: '#fff' }}>
+            <Plus className="w-5 h-5" />
+            <span className="absolute -top-1.5 -left-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-950 text-white text-[10px] font-bold flex items-center justify-center border border-slate-600">{files.length}</span>
+          </button>
+          <button type="button" onClick={() => sortFiles('az')} title="Ordenar los archivos por nombre, de la A a la Z (otro clic: de la Z a la A)" className={fab}><ArrowDownAZ className="w-5 h-5" /></button>
+          <button type="button" onClick={() => sortFiles('num')} title="Ordenar por número del nombre, del 1 al 9 (otro clic: al revés)" className={fab}><ArrowDown01 className="w-5 h-5" /></button>
+          <button type="button" onClick={() => sortFiles('weave')} title="Intercalar una hoja de cada archivo: 1-1, 2-2…" className={fab}><span className="text-[10px] font-extrabold leading-[1.05] text-center">1-1<br />2-2</span></button>
         </div>
-        <div className="px-3 pb-2 flex gap-1.5">
-          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('az')} title="Ordenar los archivos por nombre (A→Z)"><ArrowDownAZ className="w-3.5 h-3.5" /> A-Z</button>
-          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('reverse')} title="Invertir el orden de los archivos"><ArrowUpDown className="w-3.5 h-3.5" /> Invertir</button>
-          <button type="button" className={`${tb} flex-1 justify-center !px-2`} onClick={() => sortFiles('weave')} title="Intercalar: 1 hoja de cada archivo, por turnos (1-1, 2-2…)"><Shuffle className="w-3.5 h-3.5" /> 1-1 2-2</button>
+
+        <div className="px-4 pt-3 pb-2 text-center border-b border-slate-800">
+          <h3 className="text-base font-bold text-white">Ordenar PDF</h3>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
+        <div className="px-4 pt-3 pb-1.5 flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-300">Archivos:</span>
+          <button type="button" onClick={resetOrder} title="Volver al orden con el que abriste el organizador" className="text-xs font-semibold text-blue-500 underline underline-offset-2 hover:text-blue-400">Restablecer</button>
+        </div>
+        {/* Los mismos botones, en fila, para el celular (donde no hay espacio a la izquierda del panel). */}
+        <div className="md:hidden px-4 pb-2 flex items-center gap-2">
+          <button type="button" onClick={() => fileInputRef.current?.click()} className={`${fab} !bg-blue-600 !border-blue-600 !text-white`} style={{ color: '#fff' }}><Plus className="w-5 h-5" /></button>
+          <button type="button" onClick={() => sortFiles('az')} className={fab}><ArrowDownAZ className="w-5 h-5" /></button>
+          <button type="button" onClick={() => sortFiles('num')} className={fab}><ArrowDown01 className="w-5 h-5" /></button>
+          <button type="button" onClick={() => sortFiles('weave')} className={fab}><span className="text-[10px] font-extrabold leading-[1.05] text-center">1-1<br />2-2</span></button>
+          <button type="button" onClick={() => setFilesOpen(false)} className="ml-auto text-xs text-slate-300 px-3 py-2 rounded-lg border border-slate-600">Cerrar</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-3">
           {files.map((f, i) => {
             const c = (f.groupId && colorByGroup.get(f.groupId)) || NO_GROUP;
             return (
@@ -868,26 +912,32 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
                 onDragEnd={() => { setFileDragId(null); setFileOver(null); }}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setFileOver(f.key); }}
                 onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dropFileOn(f.key); setFileDragId(null); setFileOver(null); }}
-                className={`group rounded-lg border-l-[6px] border border-slate-700 bg-slate-800/70 px-2.5 py-2 cursor-grab active:cursor-grabbing ${c.border} ${fileOver === f.key && fileDragId !== f.key ? 'ring-2 ring-white/70' : ''}`}
+                style={{ background: c.soft, borderColor: c.strong, color: c.text }}
+                className={`group border px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${fileOver === f.key && fileDragId !== f.key ? 'outline outline-2 outline-blue-500 -outline-offset-2' : ''}`}
               >
-                <div className="flex items-center gap-1.5">
-                  <GripVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span className={`text-[11px] font-bold ${c.text} shrink-0`}>{String.fromCharCode(65 + (i % 26))}</span>
-                  <span className="text-xs text-slate-100 truncate flex-1" title={f.label}>{f.label}</span>
-                  <span className="text-[10px] text-slate-400 shrink-0">{f.ids.length} h.</span>
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span className="text-[13px] truncate flex-1" title={f.label}><b>{String.fromCharCode(65 + (i % 26))}:</b> {f.label}</span>
+                  <span className="text-[10px] opacity-70 shrink-0">{f.ids.length} h.</span>
                 </div>
-                <div className="flex items-center gap-1 mt-1.5">
-                  <button type="button" onClick={() => setSelected(f.ids)} title="Marcar sus hojas" className="px-2 py-1 rounded-md text-[10px] text-slate-300 hover:bg-slate-700 border border-slate-700">Marcar</button>
-                  <button type="button" onClick={() => startReplace(f.ids)} title="Reemplazar este archivo por otro, en el mismo lugar" className="px-2 py-1 rounded-md text-[10px] text-slate-300 hover:bg-slate-700 border border-slate-700 flex items-center gap-1"><Replace className="w-3 h-3" />Reemplazar</button>
+                <div className="flex items-center gap-1 mt-1 h-6 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity">
+                  <button type="button" onClick={() => setSelected(f.ids)} title="Marcar sus hojas" className="px-2 h-6 rounded-md text-[10px] font-medium bg-white/60 hover:bg-white/90">Marcar</button>
+                  <button type="button" onClick={() => startReplace(f.ids)} title="Reemplazar este archivo por otro, en el mismo lugar" className="px-2 h-6 rounded-md text-[10px] font-medium bg-white/60 hover:bg-white/90 flex items-center gap-1"><Replace className="w-3 h-3" />Reemplazar</button>
                   <span className="flex-1" />
-                  <button type="button" disabled={i === 0} onClick={() => moveFile(f.key, -1)} title="Subir" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
-                  <button type="button" disabled={i === files.length - 1} onClick={() => moveFile(f.key, 1)} title="Bajar" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-slate-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
-                  <button type="button" onClick={() => removeFile(f.ids)} title="Quitar este archivo" className="w-6 h-6 flex items-center justify-center rounded text-slate-300 hover:bg-rose-700"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button type="button" disabled={i === 0} onClick={() => moveFile(f.key, -1)} title="Subir" className="w-6 h-6 flex items-center justify-center rounded-md bg-white/60 hover:bg-white/90 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                  <button type="button" disabled={i === files.length - 1} onClick={() => moveFile(f.key, 1)} title="Bajar" className="w-6 h-6 flex items-center justify-center rounded-md bg-white/60 hover:bg-white/90 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+                  <button type="button" onClick={() => removeFile(f.ids)} title="Quitar este archivo" className="w-6 h-6 flex items-center justify-center rounded-md bg-white/60 hover:bg-rose-200"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             );
           })}
-          {!files.length && <p className="text-xs text-slate-500 px-1">Aún no hay archivos. Pulsa + para subir un PDF, Word o imágenes.</p>}
+          {!files.length && <p className="text-xs text-slate-500">Aún no hay archivos. Pulsa + para subir un PDF, Word o imágenes.</p>}
+          {files.length > 1 && <p className="text-[10px] text-slate-500 mt-2 flex items-center gap-1"><Layers className="w-3 h-3" /> Arrastra un archivo para cambiar su lugar.</p>}
+        </div>
+        <div className="p-4 pt-2">
+          <button type="button" onClick={onClose} className="w-full h-12 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base flex items-center justify-center gap-2 shadow-md" style={{ color: '#fff' }}>
+            Listo <ArrowRight className="w-5 h-5" />
+          </button>
         </div>
       </aside>
       </div>
@@ -895,14 +945,14 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       {busy && <div className="absolute inset-0 z-50 bg-slate-950/70 flex items-center justify-center text-sm text-white"><span className="px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-600">{busy}</span></div>}
       {previewId && engine && (
         <div className="absolute inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4" onClick={() => setPreviewId(null)}>
-          <div className="max-h-full overflow-auto rounded-lg shadow-2xl" ref={(el) => { if (el && !el.firstChild) { const t = engine.buildPageThumbnail(previewId, Math.min(760, window.innerWidth - 40)); if (t) el.appendChild(t); } }} />
+          <div className="max-h-full overflow-auto rounded-lg shadow-xl" ref={(el) => { if (el && !el.firstChild) { const t = engine.buildPageThumbnail(previewId, Math.min(760, window.innerWidth - 40)); if (t) el.appendChild(t); } }} />
           <button type="button" className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"><X className="w-5 h-5" /></button>
         </div>
       )}
 
       {marquee && (
         <div
-          className="fixed z-50 border-2 border-amber-400 bg-amber-400/10 pointer-events-none"
+          className="fixed z-50 border-2 border-blue-500 bg-blue-500/10 pointer-events-none"
           style={{
             left: Math.min(marquee.x0, marquee.x1),
             top: Math.min(marquee.y0, marquee.y1),
@@ -913,11 +963,11 @@ export function PageOrganizerModal({ open, onClose, engine, history }: PageOrgan
       )}
 
       {undoToast && (
-        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl px-4 py-2.5 flex items-center gap-3 text-sm text-slate-100">
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-600 rounded-xl shadow-xl px-4 py-2.5 flex items-center gap-3 text-sm text-slate-100">
           <span>
             {undoToast.count} página{undoToast.count > 1 ? 's' : ''} eliminada{undoToast.count > 1 ? 's' : ''}.
           </span>
-          <button type="button" onClick={handleUndo} className="flex items-center gap-1 text-amber-400 font-semibold hover:text-amber-300">
+          <button type="button" onClick={handleUndo} className="flex items-center gap-1 text-blue-400 font-semibold hover:text-blue-300">
             <Undo2 className="w-3.5 h-3.5" /> Deshacer
           </button>
         </div>

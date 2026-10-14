@@ -26,7 +26,7 @@ export function InstallHelp({ kind, onClose }: { kind: InstallHelpKind | null; o
   const c = steps[kind];
   return (
     <div data-keep-selection className="fixed inset-0 z-[85] bg-slate-950/70 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-bold text-white mb-2">{c.title}</h3>
         <ol className="text-sm text-slate-300 space-y-2 list-decimal pl-5">
           {c.items.map((t) => <li key={t} dangerouslySetInnerHTML={{ __html: t }} />)}

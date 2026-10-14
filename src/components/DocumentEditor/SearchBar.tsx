@@ -30,7 +30,7 @@ export function SearchBar({ engine, open, onClose, version }: { engine: Document
   if (!open) return null;
   const step = (d: 1 | -1) => engine && setRes(engine.searchStep(d));
   return (
-    <div data-keep-selection className="fixed z-[75] top-[58px] right-3 md:right-6 left-3 md:left-auto md:w-[360px] flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-1.5 print:hidden">
+    <div data-keep-selection className="fixed z-[75] top-[58px] right-3 md:right-6 left-3 md:left-auto md:w-[360px] flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-1.5 print:hidden">
       <Search className="w-4 h-4 text-slate-400 ml-1.5 shrink-0" />
       <input
         ref={input}
@@ -56,8 +56,8 @@ export function SearchBar({ engine, open, onClose, version }: { engine: Document
 export function ConfirmDialog({ req, onClose }: { req: ConfirmRequest | null; onClose: () => void }) {
   if (!req) return null;
   return (
-    <div data-keep-selection className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm print:hidden" onClick={onClose}>
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5" onClick={(e) => e.stopPropagation()}>
+    <div data-keep-selection className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 print:hidden" onClick={onClose}>
+      <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-base font-bold text-white">{req.title}</h2>
         <p className="text-sm text-slate-300 mt-1.5">{req.text}</p>
         <div className="flex gap-2 mt-4">

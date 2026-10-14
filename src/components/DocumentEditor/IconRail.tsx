@@ -195,7 +195,7 @@ export function IconRail(p: IconRailProps) {
       {p.drawerOpen && <div className="md:hidden fixed inset-0 z-[44] bg-slate-950/50" onClick={closeDrawer} />}
       <aside
         data-keep-selection
-        className={`md:hidden fixed top-0 bottom-0 left-0 z-[45] w-[84%] max-w-[320px] bg-slate-900 border-r border-slate-800 shadow-2xl flex flex-col transition-transform duration-200 print:hidden ${
+        className={`md:hidden fixed top-0 bottom-0 left-0 z-[45] w-[84%] max-w-[320px] bg-slate-900 border-r border-slate-800 shadow-xl flex flex-col transition-transform duration-200 print:hidden ${
           p.drawerOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
         }`}
         aria-hidden={!p.drawerOpen}

@@ -69,7 +69,7 @@ export function HomeScreen({ open, onClose, onPick, onTour, canInstall, onInstal
   };
 
   return (
-    <div data-keep-selection className="fixed inset-0 z-[80] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5 print:hidden" onClick={onClose}>
+    <div data-keep-selection className="fixed inset-0 z-[80] bg-slate-950/75 flex items-center justify-center p-2.5 sm:p-5 print:hidden" onClick={onClose}>
       <input
         ref={fileRef}
         type="file"
@@ -82,7 +82,7 @@ export function HomeScreen({ open, onClose, onPick, onTour, canInstall, onInstal
           if (t && files.length) onPick(t, files);
         }}
       />
-      <div className="relative w-full max-w-[760px] max-h-[calc(100dvh-20px)] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="relative w-full max-w-[760px] max-h-[calc(100dvh-20px)] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center gap-3 px-4 sm:px-6 py-3.5 sm:py-4 shrink-0 text-white" style={{ background: 'linear-gradient(120deg,#2f3a6e 0%,#4a5aa8 55%,#7a63b8 100%)' }}>
           <span className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center shrink-0 bg-white/15 ring-1 ring-white/25">
             <LogoMark className="w-6 h-6" />
