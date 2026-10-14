@@ -1,11 +1,16 @@
 // Procesadores de archivos PDF y Word (.docx) para importarlos al lienzo.
-import * as pdfjsLib from 'pdfjs-dist';
-// La URL del worker se resuelve como asset propio gracias a Vite (?url).
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
-import * as mammoth from 'mammoth';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { newPdfId, queuePageText, registerPdfDoc } from './pdfText';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+/** pdf.js se descarga solo cuando se abre un PDF (el inicio queda mucho más liviano). */
+export async function loadPdfjs() {
+  const lib = await import('pdfjs-dist');
+  if (!lib.GlobalWorkerOptions.workerSrc) {
+    // La URL del worker se resuelve como asset propio gracias a Vite (?url).
+    lib.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.js?url')).default;
+  }
+  return lib;
+}
 
 /** Cede el hilo al navegador para que la pantalla siga respondiendo mientras se procesan muchas hojas. */
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -27,7 +32,7 @@ export interface PdfImportProgress {
 export const PROJECT_ATTACHMENT = 'documentar-proyecto.json';
 
 /** Si el PDF fue guardado por Documentar con su proyecto adjunto, lo devuelve (para seguir editando todo). */
-async function readEmbeddedProject(pdf: pdfjsLib.PDFDocumentProxy): Promise<string | null> {
+async function readEmbeddedProject(pdf: PDFDocumentProxy): Promise<string | null> {
   try {
     const att = (await pdf.getAttachments()) as Record<string, { content: Uint8Array }> | null;
     const f = att?.[PROJECT_ATTACHMENT];
@@ -53,6 +58,7 @@ export async function processPDFFile(
 ): Promise<{ project: string | null }> {
   const arrayBuffer = await file.arrayBuffer();
   const typedArray = new Uint8Array(arrayBuffer);
+  const pdfjsLib = await loadPdfjs();
   const pdf = await pdfjsLib.getDocument(typedArray).promise;
   const project = await readEmbeddedProject(pdf);
   if (project) {
@@ -97,6 +103,7 @@ export async function processPDFFile(
  * el contenido de una hoja nueva.
  */
 export async function processDocxFile(file: File): Promise<string> {
+  const mammoth = await import('mammoth');
   const arrayBuffer = await file.arrayBuffer();
   const options = {
     convertImage: mammoth.images.imgElement((image) =>

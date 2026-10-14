@@ -155,4 +155,4 @@ export async function addPages(file: File, opts: { at: number; blank: number; fr
   return toBlob(await src.save());
 }
 
-export { downloadBlob } from './folioBatch';
+export { downloadBlob } from './download';

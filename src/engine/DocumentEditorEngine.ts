@@ -5,10 +5,8 @@
 // solo dibuja el "chrome" (riel, panel, modal, barra) y llama a estos métodos.
 import { getCurve, setCurve as applyCurve, curveText, setCurveText, observeCurve, renderCurve, type CurveCfg } from './curvedText';
 import Sortable from 'sortablejs';
-import JSZip from 'jszip';
-import { PDFDocument } from 'pdf-lib';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { PdfSharpener, SHARP_CLASS } from './pdfSharp';
+import { FX_DEFAULT, isDefaultFx, parseFx, renderFx, type Fx } from './imageFx';
 import type {
   ArrangeLayoutId,
   CurrentMargin,
@@ -43,7 +41,7 @@ const MARGIN_CLASSES: MarginPresetClass[] = [
 ];
 
 const PAGE_BASE_CLASSES =
-  'a4-page bg-white text-black shadow-2xl shadow-black/40 mx-auto relative flex flex-col box-border print:shadow-none print:w-full print:h-full break-after-page group';
+  'a4-page bg-white text-black shadow-xl shadow-black/40 mx-auto relative flex flex-col box-border print:shadow-none print:w-full print:h-full break-after-page group';
 
 const ORIENTATION_SIZE_CLASSES: Record<PageOrientation, string> = {
   portrait: 'w-[210mm] min-h-[297mm]',
@@ -138,6 +136,7 @@ export class DocumentEditorEngine {
   private boundPaste = this.handlePaste.bind(this);
   private boundCopyEvt = this.handleNativeCopy.bind(this);
   private boundWheel = this.handleWheel.bind(this);
+  private sharp: PdfSharpener | null = null;
 
   constructor(
     pagesWrapper: HTMLElement,
@@ -147,6 +146,7 @@ export class DocumentEditorEngine {
     this.pagesWrapper = pagesWrapper;
     this.scrollContainer = scrollContainer;
     this.listeners = listeners;
+    this.sharp = new PdfSharpener(pagesWrapper, scrollContainer);
 
     // El lienzo empieza vacío: la primera hoja la crea el motor.
     if (!this.pagesWrapper.querySelector('.a4-page')) {
@@ -231,6 +231,7 @@ export class DocumentEditorEngine {
     this.scrollContainer.removeEventListener('touchend', this.boundTouchEnd);
     this.scrollContainer.removeEventListener('touchcancel', this.boundTouchEnd);
     this.pdfEdit?.destroy();
+    this.sharp?.destroy();
     cancelAnimationFrame(this.folioRaf);
     clearTimeout(this.commitTimer);
     this.sortableInstance?.destroy();
@@ -260,6 +261,28 @@ export class DocumentEditorEngine {
     const first = this.pagesWrapper.querySelector<HTMLElement>('.a4-page');
     this.setActivePage(first);
     return first;
+  }
+
+  /** Como getActivePage, pero si el documento está vacío crea una hoja en blanco (para insertar algo). */
+  private ensureActivePage(): HTMLElement | null {
+    const cur = this.getActivePage();
+    if (cur) return cur;
+    const page = this.addNewPage('', false, { scroll: false });
+    this.setActivePage(page);
+    return page;
+  }
+
+  /** ¿El documento no tiene ninguna hoja? (se muestra la pantalla de «Documento vacío») */
+  isEmpty(): boolean {
+    return this.pagesWrapper.querySelectorAll('.a4-page').length === 0;
+  }
+
+  /** Agrega una hoja en blanco al final (desde la pantalla de documento vacío). */
+  addBlankPage(): string | null {
+    const page = this.addNewPage('', false, { scroll: true });
+    this.setActivePage(page);
+    this.commitNow();
+    return page?.id ?? null;
   }
 
   private scheduleImageInfo() {
@@ -588,6 +611,7 @@ export class DocumentEditorEngine {
           <button type="button" data-action="move-up" title="Mover Arriba" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-blue-400 transition">&#8593;</button>
           <button type="button" data-action="move-down" title="Mover Abajo" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-blue-400 transition">&#8595;</button>
           <button type="button" data-action="orientation" title="Girar hoja (vertical / horizontal)" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-amber-400 transition">&#8635;</button>
+          ${isPdfPage ? '<button type="button" data-action="color" title="Color de la hoja: grises, blanco y negro, tonos…" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-violet-400 transition">&#9681;</button>' : ''}
           <button type="button" data-action="duplicate" title="Duplicar Página" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-emerald-400 transition">&#10697;</button>
           <button type="button" data-action="delete" title="Eliminar Página" class="p-2 hover:bg-slate-700 rounded text-slate-300 hover:text-rose-400 transition">&#10005;</button>
         </div>
@@ -608,6 +632,7 @@ export class DocumentEditorEngine {
           case 'orientation': this.togglePageOrientation(id); break;
           case 'duplicate': this.duplicatePage(id); break;
           case 'delete': this.deletePage(id); break;
+          case 'color': this.listeners.onPageColor?.(id); break;
         }
       });
     });
@@ -692,6 +717,7 @@ export class DocumentEditorEngine {
     const original = document.getElementById(pageId);
     if (!original) return null;
     const clone = original.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.' + SHARP_CLASS).forEach((e) => e.remove());
     const newId = `page-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     clone.id = newId;
     clone.setAttribute('data-page-id', newId);
@@ -818,11 +844,11 @@ export class DocumentEditorEngine {
   }
   searchClear() { this.searcher?.clear(); }
 
-  /** Pregunta si de verdad se quiere borrar todo (queda una hoja en blanco para empezar de nuevo). */
+  /** Pregunta si de verdad se quiere borrar todo (el documento queda vacío, sin ninguna hoja). */
   requestClearAll() {
     const run = () => this.clearAllPages();
     if (this.listeners.onConfirm) {
-      this.listeners.onConfirm({ title: '¿Borrar todas las hojas?', text: 'Se vaciará todo el documento y quedará una hoja en blanco para empezar de nuevo. Puedes deshacerlo con Ctrl+Z.', yes: 'Sí, borrar todo', run });
+      this.listeners.onConfirm({ title: '¿Borrar todas las hojas?', text: 'Se eliminarán todas las hojas y el documento quedará completamente vacío. Puedes deshacerlo con Ctrl+Z.', yes: 'Sí, borrar todo', run });
     } else run();
   }
 
@@ -831,9 +857,9 @@ export class DocumentEditorEngine {
     this.hideElementToolbar();
     this.pagesWrapper.querySelectorAll('.a4-page').forEach((p) => p.remove());
     this.activePage = null;
-    const page = this.addNewPage('', false, { scroll: false });
+    this.listeners.onToolbarStateChange?.(null);
     this.updatePageNumbers();
-    this.setActivePage(page);
+    this.scheduleImageInfo();
     this.commitNow();
   }
 
@@ -893,6 +919,7 @@ export class DocumentEditorEngine {
     const page = document.getElementById(id);
     if (!page) return null;
     const clone = page.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.' + SHARP_CLASS).forEach((e) => e.remove());
     clone.removeAttribute('id');
     clone.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
     clone.querySelectorAll('[data-page-toolbar], .margin-guide').forEach((e) => e.remove());
@@ -983,6 +1010,7 @@ export class DocumentEditorEngine {
             this.setActivePage(this.pagesWrapper.querySelector<HTMLElement>('.a4-page[data-file-group="' + fileGroup.id + '"]'));
           }
         } else if (ext === 'documentar') {
+          const JSZip = (await import('jszip')).default;
           const zip = await JSZip.loadAsync(await file.arrayBuffer());
           const txt = await zip.file('project.json')?.async('string');
           if (!txt) throw new Error('Proyecto vacío');
@@ -1007,7 +1035,7 @@ export class DocumentEditorEngine {
 
         if (mode === 'current') {
           // En la hoja donde está el usuario, acomodadas automáticamente.
-          const page = this.getActivePage();
+          const page = this.ensureActivePage();
           if (page) {
             const area = this.getPageArea(page);
             for (const src of dataUrls) {
@@ -1143,6 +1171,7 @@ export class DocumentEditorEngine {
       this.listeners.onError?.('Ocurrió un error al agregar una o más imágenes.');
     } finally {
       this.busy = false;
+      this.sharp?.resume();
       this.listeners.onLoadingChange?.({ show: false, title: '', status: '' });
     }
     this.arrangeImagesPaged(page, 'grid', maxPerPage);
@@ -1217,7 +1246,7 @@ export class DocumentEditorEngine {
 
   /** Inserta una imagen suelta en la hoja donde está el usuario. */
   async insertFloatingImage(src: string, opts: { signature?: boolean } = {}): Promise<void> {
-    const page = this.getActivePage();
+    const page = this.ensureActivePage();
     if (!page) return;
     const area = this.getPageArea(page);
     const box = await this.addImageToPage(page, src, Math.min(area.w * 0.6, 480), Math.min(area.h * 0.5, 480), this.nextFloatingOffset(), !!opts.signature);
@@ -1248,7 +1277,7 @@ export class DocumentEditorEngine {
   }
 
   insertFloatingTextBox(text?: string): void {
-    const page = this.getActivePage();
+    const page = this.ensureActivePage();
     if (!page) return;
     const area = this.getPageArea(page);
     const off = this.nextFloatingOffset();
@@ -1339,7 +1368,7 @@ export class DocumentEditorEngine {
   }
 
   private insertShapeLike(type: 'shape' | 'frame', kind: ShapeKind, size: { w: number; h: number }, filled: boolean) {
-    const page = this.getActivePage();
+    const page = this.ensureActivePage();
     if (!page) return;
     const area = this.getPageArea(page);
     const off = this.nextFloatingOffset();
@@ -1642,12 +1671,29 @@ export class DocumentEditorEngine {
     `;
   }
 
-  private selectFloatingBox(box: HTMLElement) {
-    this.setActivePage(box.closest<HTMLElement>('.a4-page'));
-    this.pagesWrapper.querySelectorAll('.floating-box.box-selected').forEach((b) => {
-      if (b !== box) b.classList.remove('box-selected');
-    });
+  /** Selecciona un elemento. Con Mayús/Ctrl se suma a la selección (para agrupar o guardar varias imágenes juntas). */
+  private selectFloatingBox(box: HTMLElement, additive = false) {
+    const page = box.closest<HTMLElement>('.a4-page');
+    this.setActivePage(page);
+    const all = () => Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.floating-box.box-selected'));
+    if (additive) {
+      if (box.classList.contains('box-selected') && all().length > 1) {
+        box.classList.remove('box-selected');
+        const rest = all();
+        this.showElementToolbarFor(rest[rest.length - 1], 'box');
+        return;
+      }
+      all().forEach((b) => { if (b.parentElement !== box.parentElement) b.classList.remove('box-selected'); });
+    } else if (box.classList.contains('box-selected') && all().length > 1) {
+      // Ya forma parte de una selección múltiple: se conserva para poder moverla junta.
+      this.showElementToolbarFor(box, 'box');
+      return;
+    } else {
+      all().forEach((b) => { if (b !== box) b.classList.remove('box-selected'); });
+    }
     box.classList.add('box-selected');
+    const g = box.dataset.group;
+    if (g) page?.querySelectorAll<HTMLElement>(`:scope > .floating-box[data-group="${g}"]`).forEach((b) => b.classList.add('box-selected'));
     this.showElementToolbarFor(box, 'box');
   }
 
@@ -1673,6 +1719,7 @@ export class DocumentEditorEngine {
     if (!page) return;
     const clone = original.cloneNode(true) as HTMLElement;
     clone.removeAttribute('data-initialized');
+    clone.removeAttribute('data-group');
     clone.removeAttribute('data-linked-caption-id');
     clone.removeAttribute('data-caption-for');
     clone.classList.remove('box-selected');
@@ -1740,7 +1787,9 @@ export class DocumentEditorEngine {
     e.stopPropagation();
     // Deja de escribir (si lo hacía) para que Supr borre el elemento y no una letra.
     (document.activeElement as HTMLElement | null)?.blur?.();
-    this.selectFloatingBox(box);
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    this.selectFloatingBox(box, additive);
+    if (additive) return; // solo suma o quita de la selección, no arrastra
     const page = box.parentElement as HTMLElement;
     const guide = this.showMarginGuide(page);
     this.busy = true;
@@ -1749,6 +1798,9 @@ export class DocumentEditorEngine {
     const startY = e.clientY;
     const startLeft = box.offsetLeft;
     const startTop = box.offsetTop;
+    const others = Array.from(page.querySelectorAll<HTMLElement>(':scope > .floating-box.box-selected'))
+      .filter((o) => o !== box)
+      .map((o) => ({ el: o, l: o.offsetLeft, t: o.offsetTop }));
     let moved = 0;
     const targets = this.snapEnabled || this.gridEnabled ? this.snapTargets(page, box) : null;
 
@@ -1768,6 +1820,11 @@ export class DocumentEditorEngine {
       }
       box.style.left = `${newLeft}px`;
       box.style.top = `${newTop}px`;
+      for (const o of others) {
+        o.el.style.left = `${o.l + (newLeft - startLeft)}px`;
+        o.el.style.top = `${o.t + (newTop - startTop)}px`;
+        this.syncLinkedCaption(o.el);
+      }
       this.syncLinkedCaption(box);
       this.updateMarginGuide(page, guide, box);
     };
@@ -2087,7 +2144,7 @@ export class DocumentEditorEngine {
     box.dataset.initialized = 'true';
     if (box.dataset.type === 'text') observeCurve(box);
 
-    box.addEventListener('pointerdown', () => this.selectFloatingBox(box));
+    box.addEventListener('pointerdown', (e) => this.selectFloatingBox(box, e.shiftKey || e.ctrlKey || e.metaKey));
 
     box.querySelector<HTMLElement>('.floating-box-remove')?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2198,6 +2255,8 @@ export class DocumentEditorEngine {
         boxType === 'image' ? !!this.etTarget.dataset.cropW : boxType === 'frame' ? !!this.etTarget.dataset.hasImg : false,
       imageRadiusPct: boxType === 'image' ? parseFloat(this.etTarget.dataset.rad || '0') || 0 : null,
       shape: boxType === 'shape' || boxType === 'frame' ? this.readShape(this.etTarget) : null,
+      selCount: this.pagesWrapper.querySelectorAll('.floating-box.box-selected').length,
+      grouped: !!this.etTarget.dataset.group,
     };
     this.listeners.onToolbarStateChange?.(state);
   }
@@ -2767,6 +2826,8 @@ export class DocumentEditorEngine {
     const img = box?.querySelector<HTMLImageElement>('img');
     if (!box || !img) return;
     img.src = dataUrl;
+    delete img.dataset.fx;
+    delete img.dataset.fxSrc;
     this.stickerOrig.delete(id);
     // El recorte (si lo hay) está en píxeles de pantalla, así que no cambia aunque la imagen se haya reducido.
     box.dataset.natW = String(w);
@@ -2827,6 +2888,224 @@ export class DocumentEditorEngine {
     applyCurve(box, cfg);
     if (cfg) renderCurve(box);
     this.commitNow();
+  }
+
+  // ===================== AJUSTES DE COLOR, TAMAÑO, GRUPOS Y GUARDAR IMAGEN =====================
+
+  private fxToken = 0;
+
+  /** Elementos de imagen sobre los que actúan los ajustes: la imagen seleccionada o la(s) hoja(s) de PDF. */
+  private fxTargets(target: 'box' | 'page' | 'allPages', pageId?: string): HTMLImageElement[] {
+    if (target === 'box') {
+      const box = this.getEtBox();
+      const img = box?.dataset.type === 'image' ? box.querySelector<HTMLImageElement>('img') : null;
+      return img ? [img] : [];
+    }
+    if (target === 'page') {
+      const page = pageId ? document.getElementById(pageId) : this.getActivePage();
+      const img = page?.querySelector<HTMLImageElement>('img[data-pdf-id]');
+      return img ? [img] : [];
+    }
+    return Array.from(this.pagesWrapper.querySelectorAll<HTMLImageElement>('img[data-pdf-id]'));
+  }
+
+  getImageFx(target: 'box' | 'page' | 'allPages', pageId?: string): Fx {
+    const img = this.fxTargets(target, pageId)[0];
+    return parseFx(img?.dataset.fx);
+  }
+
+  /** Aplica (o quita con null) los ajustes de color. `commit` falso mientras se arrastra un control. */
+  async setImageFx(target: 'box' | 'page' | 'allPages', fx: Fx | null, opts: { commit?: boolean; pageId?: string } = {}) {
+    const imgs = this.fxTargets(target, opts.pageId);
+    if (!imgs.length) return;
+    if (target === 'box') {
+      const box = this.getEtBox();
+      if (box?.dataset.stickerPad) {
+        this.listeners.onError?.('Quita primero el borde de sticker (Sticker → Quitar) y luego ajusta el color.');
+        return;
+      }
+    }
+    const my = ++this.fxToken;
+    const reset = !fx || isDefaultFx(fx);
+    if (imgs.length > 3) this.listeners.onLoadingChange?.({ show: true, title: 'Ajustando color', status: `0 / ${imgs.length}` });
+    this.busy = true;
+    try {
+      let n = 0;
+      for (const img of imgs) {
+        if (my !== this.fxToken) return; // llegó un ajuste más nuevo
+        const base = img.dataset.fxSrc || img.src;
+        if (reset) {
+          if (img.dataset.fxSrc) {
+            img.src = img.dataset.fxSrc;
+            delete img.dataset.fxSrc;
+          }
+          delete img.dataset.fx;
+        } else {
+          const out = await renderFx(base, fx!);
+          if (my !== this.fxToken) return;
+          if (!img.dataset.fxSrc) img.dataset.fxSrc = base;
+          img.src = out.url;
+          img.dataset.fx = JSON.stringify(fx);
+        }
+        n++;
+        if (imgs.length > 3) this.listeners.onLoadingChange?.({ show: true, title: 'Ajustando color', status: `${n} / ${imgs.length}` });
+        if (imgs.length > 3) await new Promise((r) => setTimeout(r, 0));
+      }
+    } catch (e) {
+      console.error(e);
+      this.listeners.onError?.('No se pudo ajustar el color de la imagen.');
+    } finally {
+      if (my === this.fxToken) {
+        this.busy = false;
+        if (imgs.length > 3) this.listeners.onLoadingChange?.({ show: false, title: '', status: '' });
+        if (opts.commit !== false) this.commitNow();
+      }
+    }
+  }
+
+  commitChange() {
+    this.commitNow();
+  }
+
+  // ----- tamaño de la imagen seleccionada -----
+  getBoxSize(): { w: number; h: number; natW: number; natH: number; cropped: boolean } | null {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'image') return null;
+    const img = box.querySelector<HTMLImageElement>('img');
+    return {
+      w: Math.round(box.offsetWidth),
+      h: Math.round(box.offsetHeight),
+      natW: img?.naturalWidth || 0,
+      natH: img?.naturalHeight || 0,
+      cropped: !!box.dataset.cropW,
+    };
+  }
+
+  /** Cambia el ancho (o alto) conservando la proporción. */
+  setBoxSize(dim: 'w' | 'h', px: number) {
+    const box = this.getEtBox();
+    if (!box || box.dataset.type !== 'image' || !(px >= 10)) return;
+    if (box.dataset.cropW) {
+      this.listeners.onError?.('Quita el recorte antes de cambiar el tamaño con números.');
+      return;
+    }
+    const ar = parseFloat(box.dataset.ar || '') || box.offsetWidth / Math.max(box.offsetHeight, 1);
+    const w = dim === 'w' ? px : px * ar;
+    const h = dim === 'h' ? px : px / ar;
+    box.style.width = `${Math.round(w)}px`;
+    box.style.height = `${Math.round(h)}px`;
+    this.syncLinkedCaption(box);
+    this.publishToolbarState();
+    this.scheduleCommit();
+  }
+
+  /** Vuelve la imagen a su tamaño original (el de sus píxeles), sin pasarse de la hoja. */
+  resetBoxSize() {
+    const box = this.getEtBox();
+    const img = box?.querySelector<HTMLImageElement>('img');
+    if (!box || !img || box.dataset.type !== 'image' || !img.naturalWidth) return;
+    if (box.dataset.cropW) {
+      this.listeners.onError?.('Quita el recorte para volver al tamaño original.');
+      return;
+    }
+    const page = box.parentElement as HTMLElement;
+    let w = img.naturalWidth * 0.75; // px de pantalla a 96 ppp aprox.
+    const maxW = page.clientWidth * 0.9;
+    if (w > maxW) w = maxW;
+    this.setBoxSize('w', w);
+    box.dataset.ar = String(img.naturalWidth / img.naturalHeight);
+    this.setBoxSize('w', w);
+    this.commitNow();
+  }
+
+  // ----- grupos -----
+  groupSelected() {
+    const sel = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.floating-box.box-selected'));
+    if (sel.length < 2) {
+      this.listeners.onNotice?.('Mantén Mayús (o Ctrl) y haz clic en varias imágenes para seleccionarlas juntas; luego pulsa Agrupar.');
+      return;
+    }
+    const id = `g-${Date.now().toString(36)}`;
+    sel.forEach((b) => { b.dataset.group = id; });
+    this.publishToolbarState();
+    this.commitNow();
+  }
+
+  ungroupSelected() {
+    const sel = Array.from(this.pagesWrapper.querySelectorAll<HTMLElement>('.floating-box.box-selected'));
+    sel.forEach((b) => b.removeAttribute('data-group'));
+    this.publishToolbarState();
+    this.commitNow();
+  }
+
+  /** Guarda como imagen (PNG con fondo transparente, o JPG) lo seleccionado: una imagen, un sticker o varias agrupadas. */
+  async saveSelectionAsImage(format: 'png' | 'jpg') {
+    const first = this.getEtBox();
+    if (!first) return;
+    const page = first.parentElement as HTMLElement;
+    const boxes = Array.from(page.querySelectorAll<HTMLElement>(':scope > .floating-box.box-selected'));
+    if (!boxes.length) boxes.push(first);
+    boxes.forEach((b, i) => { if (!b.dataset.fbId) b.dataset.fbId = `fb-${Date.now()}-${i}`; });
+    const ids = new Set(boxes.map((b) => b.dataset.fbId as string));
+    // Los pies de foto vinculados viajan con su imagen solo si tienen texto.
+    boxes.forEach((b) => {
+      const cap = b.dataset.linkedCaptionId ? page.querySelector<HTMLElement>(`:scope > .floating-box[data-fb-id="${b.dataset.linkedCaptionId}"]`) : null;
+      if (cap && cap.textContent?.trim()) ids.add(b.dataset.linkedCaptionId as string);
+    });
+    const all = Array.from(page.querySelectorAll<HTMLElement>(':scope > .floating-box')).filter((b) => ids.has(b.dataset.fbId || ''));
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    all.forEach((b) => {
+      x0 = Math.min(x0, b.offsetLeft); y0 = Math.min(y0, b.offsetTop);
+      x1 = Math.max(x1, b.offsetLeft + b.offsetWidth); y1 = Math.max(y1, b.offsetTop + b.offsetHeight);
+    });
+    const bw = Math.max(1, x1 - x0), bh = Math.max(1, y1 - y0);
+    const single = boxes.length === 1 ? boxes[0].querySelector<HTMLImageElement>('img') : null;
+    let scale = single?.naturalWidth ? single.naturalWidth / bw : 2.5;
+    scale = Math.max(1, Math.min(scale, 4096 / Math.max(bw, bh), 6));
+
+    this.sharp?.pause();
+    this.busy = true;
+    const prevTransform = this.pagesWrapper.style.transform;
+    this.pagesWrapper.style.transform = '';
+    document.body.classList.add('exporting');
+    this.listeners.onLoadingChange?.({ show: true, title: 'Guardando imagen', status: 'Preparando…' });
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(page, {
+        x: x0, y: y0, width: bw, height: bh, scale, useCORS: true, logging: false,
+        backgroundColor: format === 'jpg' ? '#ffffff' : null,
+        windowWidth: Math.max(page.scrollWidth, page.offsetWidth),
+        windowHeight: Math.max(page.scrollHeight, page.offsetHeight),
+        onclone: (doc: Document) => {
+          const cp = doc.getElementById(page.id);
+          if (!cp) return;
+          cp.style.background = 'transparent';
+          cp.style.boxShadow = 'none';
+          Array.from(cp.children).forEach((c) => {
+            const el = c as HTMLElement;
+            const keep = el.classList.contains('floating-box') && ids.has(el.dataset.fbId || '');
+            if (!keep) el.style.visibility = 'hidden';
+            else {
+              el.classList.remove('box-selected');
+              el.querySelectorAll<HTMLElement>('.floating-box-handle, .floating-box-ctrl, .floating-box-rotate').forEach((h) => { h.style.display = 'none'; });
+            }
+          });
+        },
+      });
+      const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('vacío'))), mime, 0.95));
+      this.saveBlob(blob, `imagen_${Date.now()}.${format}`);
+      this.listeners.onNotice?.(`Imagen guardada (${canvas.width}×${canvas.height}px).`);
+    } catch (e) {
+      console.error(e);
+      this.listeners.onError?.('No se pudo guardar la imagen.');
+    } finally {
+      this.pagesWrapper.style.transform = prevTransform;
+      document.body.classList.remove('exporting');
+      this.busy = false;
+      this.sharp?.resume();
+      this.listeners.onLoadingChange?.({ show: false, title: '', status: '' });
+    }
   }
 
   async setStickerBorder(opts: { width: number; color: string; shadow: boolean } | null) {
@@ -2933,19 +3212,19 @@ export class DocumentEditorEngine {
 
   private serializeState(): string {
     const clone = this.pagesWrapper.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.margin-guide, .page-folio, .snap-line, .pdf-edit-overlay, .pdf-edit-bg, .pdf-hover').forEach((e) => e.remove());
+    clone.querySelectorAll('.margin-guide, .page-folio, .snap-line, .pdf-edit-overlay, .pdf-edit-bg, .pdf-hover, .'+SHARP_CLASS).forEach((e) => e.remove());
     clone.querySelectorAll('.box-selected').forEach((e) => e.classList.remove('box-selected'));
     clone.querySelectorAll('.page-active').forEach((e) => e.classList.remove('page-active'));
     clone.querySelectorAll('[data-initialized]').forEach((e) => e.removeAttribute('data-initialized'));
     // Las imágenes (base64) se guardan una sola vez y se referencian, para no duplicar memoria.
-    return clone.innerHTML.replace(/src="(data:[^"]+)"/g, (_m, d: string) => {
+    return clone.innerHTML.replace(/(src|data-fx-src)="(data:[^"]+)"/g, (_m, attr: string, d: string) => {
       let id = this.imgIds.get(d);
       if (id === undefined) {
         id = this.imgStore.length;
         this.imgStore.push(d);
         this.imgIds.set(d, id);
       }
-      return `src="@@img${id}@@"`;
+      return `${attr}="@@img${id}@@"`;
     });
   }
 
@@ -2977,7 +3256,7 @@ export class DocumentEditorEngine {
 
   private restoreState(snap: string) {
     this.restoring = true;
-    this.pagesWrapper.innerHTML = snap.replace(/src="@@img(\d+)@@"/g, (_m, i: string) => `src="${this.imgStore[Number(i)]}"`);
+    this.pagesWrapper.innerHTML = snap.replace(/(src|data-fx-src)="@@img(\d+)@@"/g, (_m, a: string, i: string) => `${a}="${this.imgStore[Number(i)]}"`);
     this.pagesWrapper.querySelectorAll<HTMLElement>('.a4-page').forEach((p) => {
       this.wirePageToolbar(p);
       p.querySelectorAll<HTMLElement>('.floating-box').forEach((fb) => this.initFloatingBox(fb));
@@ -3019,7 +3298,7 @@ export class DocumentEditorEngine {
   exportSnapshot(): { html: string; font: string; pages: number } {
     if (this.commitTimer) this.commitNow();
     const snap = this.history[this.historyIndex] ?? this.serializeState();
-    const html = snap.replace(/src="@@img(\d+)@@"/g, (_m, i: string) => `src="${this.imgStore[Number(i)]}"`);
+    const html = snap.replace(/(src|data-fx-src)="@@img(\d+)@@"/g, (_m, a: string, i: string) => `${a}="${this.imgStore[Number(i)]}"`);
     return { html, font: this.currentFont, pages: this.pagesWrapper.querySelectorAll('.a4-page').length };
   }
 
@@ -3200,6 +3479,7 @@ export class DocumentEditorEngine {
     this.pagesWrapper.style.transform = z === 1 ? '' : `scale(${z})`;
     this.pagesWrapper.style.setProperty('--z', String(z));
     this.syncZoomShell();
+    this.sharp?.poke();
     this.listeners.onZoomChange?.(Math.round(z * 100));
   }
 
@@ -3360,6 +3640,7 @@ export class DocumentEditorEngine {
   async exportDocument(opts: ExportOptions): Promise<void> {
     await this.pdfEdit.commit();
     if (opts.format === 'documentar') {
+      const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       zip.file('project.json', this.exportProjectText());
       zip.file('LEEME.txt', 'Proyecto de Documentar. Ábrelo con «Subir» dentro de la aplicación para seguir editando.');
@@ -3393,19 +3674,22 @@ export class DocumentEditorEngine {
     this.pagesWrapper.style.transform = '';
     this.busy = true;
 
+    this.sharp?.pause();
     try {
+      const [{ default: html2canvas }, jspdfMod] = await Promise.all([import('html2canvas'), opts.format === 'pdf' ? import('jspdf') : Promise.resolve(null)]);
       // Hojas de PDF sin editar: se vuelve a dibujar desde el PDF original en alta resolución (texto nítido).
-      const hiRes = async (page: HTMLElement): Promise<() => void> => {
+      const noop = { restore: () => undefined as void, canvas: null as HTMLCanvasElement | null };
+      const hiRes = async (page: HTMLElement): Promise<{ restore: () => void; canvas: HTMLCanvasElement | null }> => {
         const img = page.querySelector<HTMLImageElement>('img[data-pdf-id]');
         const data = getPdfPage(img?.dataset.pdfId);
-        if (!img || !data || data.runs.some((r) => r.edited)) return () => undefined;
+        if (!img || !data || img.dataset.fx || data.runs.some((r) => r.edited)) return noop;
         try {
           const proxy = await getPdfPageProxy(data);
-          if (!proxy) return () => undefined;
+          if (!proxy) return noop;
           const base = proxy.getViewport({ scale: 1 });
           const cap = pages.length > 200 ? 0 : pages.length > 60 ? 2 : 3.2;
           const k = Math.min(cap, 2600 / Math.max(base.width, base.height));
-          if (k <= data.scale * 1.15) return () => undefined;
+          if (k <= data.scale * 1.15) return noop;
           const vp = proxy.getViewport({ scale: k });
           const c = document.createElement('canvas');
           c.width = Math.round(vp.width);
@@ -3414,13 +3698,23 @@ export class DocumentEditorEngine {
           ctx.fillStyle = '#fff';
           ctx.fillRect(0, 0, c.width, c.height);
           await proxy.render({ canvasContext: ctx, viewport: vp }).promise;
+          // Hoja que es solo el PDF (sin textos, imágenes ni formas encima): se usa el dibujo directo, sin pasar por html2canvas (mucho más rápido).
+          const content = page.querySelector<HTMLElement>(':scope > .page-content');
+          const onlyPdf =
+            !!content &&
+            !page.querySelector(':scope > .floating-box, :scope > .page-folio, :scope > .page-header, :scope > .page-footer, table, svg') &&
+            Array.from(content.children).every((c) => c === img || c.matches('.pdf-edit-overlay, .pdf-edit-bg, .pdf-hover, .pdf-sharp')) &&
+            Math.abs(img.offsetWidth - page.offsetWidth) < 3 &&
+            Math.abs(img.offsetHeight - page.offsetHeight) < 3 &&
+            !img.style.transform;
+          if (onlyPdf) return { restore: () => undefined, canvas: c };
           const prev = img.src;
           img.src = c.toDataURL('image/jpeg', 0.93);
           await img.decode().catch(() => undefined);
           c.width = c.height = 0;
-          return () => { img.src = prev; };
+          return { restore: () => { img.src = prev; }, canvas: null };
         } catch {
-          return () => undefined;
+          return noop;
         }
       };
       const renderRaw = async (page: HTMLElement) => {
@@ -3435,8 +3729,9 @@ export class DocumentEditorEngine {
         });
       };
       const render = async (page: HTMLElement) => {
-        const restore = await hiRes(page);
-        try { return await renderRaw(page); } finally { restore(); }
+        const h = await hiRes(page);
+        if (h.canvas) return h.canvas;
+        try { return await renderRaw(page); } finally { h.restore(); }
       };
       const stamp = Date.now();
 
@@ -3444,7 +3739,7 @@ export class DocumentEditorEngine {
         const mm = (px: number) => (px * 25.4) / 96;
         const dims = (p: HTMLElement) => ({ w: mm(p.offsetWidth), h: mm(p.offsetHeight) });
         const first = dims(pages[0]);
-        const pdf = new jsPDF({
+        const pdf = new jspdfMod!.default({
           orientation: first.w > first.h ? 'l' : 'p',
           unit: 'mm',
           format: [first.w, first.h],
@@ -3460,6 +3755,7 @@ export class DocumentEditorEngine {
           // El proyecto va adjunto dentro del PDF: al volver a subirlo, se abre completo para seguir editando.
           try {
             this.listeners.onLoadingChange?.({ show: true, title: 'Exportando PDF', status: 'Guardando el proyecto editable dentro del PDF…' });
+            const { PDFDocument } = await import('pdf-lib');
             const doc = await PDFDocument.load(await out.arrayBuffer());
             await doc.attach(new TextEncoder().encode(this.exportProjectText()), PROJECT_ATTACHMENT, { mimeType: 'application/json', description: 'Proyecto editable de Documentar' });
             out = new Blob([new Uint8Array(await doc.save({ useObjectStreams: false }))], { type: 'application/pdf' });
@@ -3478,6 +3774,7 @@ export class DocumentEditorEngine {
         if (pages.length === 1) {
           await this.deliverBlob(await toBlob(await render(pages[0])), `lienzo_${stamp}.${ext}`, opts.share);
         } else {
+          const JSZip = (await import('jszip')).default;
           const zip = new JSZip();
           for (let i = 0; i < pages.length; i++) {
             zip.file(`lienzo_${String(i + 1).padStart(2, '0')}.${ext}`, await toBlob(await render(pages[i])));
