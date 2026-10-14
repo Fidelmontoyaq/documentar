@@ -86,6 +86,10 @@ export interface ToolbarState {
   imageRadiusPct: number | null;
   /** Datos de la forma o marco seleccionado; null si no es ninguno. */
   shape: ShapeState | null;
+  /** Cuántos elementos hay seleccionados (Mayús/Ctrl+clic suma). */
+  selCount: number;
+  /** El elemento forma parte de un grupo. */
+  grouped: boolean;
 }
 
 export interface ConfirmRequest {
@@ -104,6 +108,8 @@ export interface DocumentEditorEngineListeners {
   /** El modo "editar texto del PDF" se activó o desactivó. */
   onPdfEditModeChange?: (on: boolean) => void;
   onPageCountChange?: (count: number) => void;
+  /** Se pidió ajustar el color de una hoja de PDF (botón de la hoja). */
+  onPageColor?: (pageId: string) => void;
   /** Cantidad de imágenes en la hoja activa (para habilitar el botón Ordenar). */
   onActiveImagesChange?: (count: number) => void;
   onToolbarStateChange?: (state: ToolbarState | null) => void;
