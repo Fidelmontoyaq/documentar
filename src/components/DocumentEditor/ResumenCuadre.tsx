@@ -24,14 +24,15 @@ const FIJOS = [
   { k: 'blanco', etiqueta: 'En blanco' },
   { k: 'nulos', etiqueta: 'Nulos' },
   { k: 'impugnados', etiqueta: 'Impugnados' },
+  { k: 'emitidos_escrito', etiqueta: 'Total emitido (escrito)' },
 ] as const;
 
 export default function ResumenCuadre() {
-  const { acta, setCampoNumerico, setCampoTexto } = useActaStore();
+  const { acta, setCampoNumerico, setCampoTexto, versiones } = useActaStore();
   const resumen = useValidacionActa(acta);
   if (!acta || !resumen) return null;
 
-  const exportar = async () => exportarActaJSON(acta, resumen, await listarAuditoria());
+  const exportar = async () => exportarActaJSON(acta, resumen, await listarAuditoria(), versiones);
   const campoNum = (campo: CampoNumerico, etiqueta: string) => {
     const c = acta.confianza_campos[campo];
     return (
@@ -70,7 +71,7 @@ export default function ResumenCuadre() {
           return (
             <div key={e} className={`space-y-2 rounded border p-2 ${r.cuadra ? 'border-green-400' : 'border-red-400'}`}>
               <p className="text-xs font-bold uppercase">Municipal {e}</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {FIJOS.map((f) => campoNum(`${f.k}_${e}` as CampoNumerico, f.etiqueta))}
               </div>
               <p className="text-xs">Votos válidos: <b>{r.validos}</b></p>

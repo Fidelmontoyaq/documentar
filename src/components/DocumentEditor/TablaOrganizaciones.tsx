@@ -110,6 +110,13 @@ export default function TablaOrganizaciones() {
               <td />
             </tr>
             <tr>
+              <td colSpan={2} className="px-2 py-1">Total emitido ESCRITO en el acta</td>
+              {ELECCIONES.map((e) => (
+                <td key={e} className={`px-2 py-1 text-center ${resumen.por_eleccion[e].escrito_ok ? 'text-green-700' : 'text-red-700'}`}>{acta[`emitidos_escrito_${e}`]}</td>
+              ))}
+              <td />
+            </tr>
+            <tr>
               <td colSpan={2} className="px-2 py-1">Ciudadanos que votaron · Electores hábiles</td>
               <td colSpan={2} className="px-2 py-1 text-center">{acta.ciudadanos_votaron} · {acta.electores_habiles}</td>
               <td />
