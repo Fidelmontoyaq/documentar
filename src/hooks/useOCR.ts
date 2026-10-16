@@ -2,19 +2,17 @@ import { useCallback } from 'react';
 import { createWorker, type Worker } from 'tesseract.js';
 import { useActaStore } from '../store/actaStore';
 import { cargarCanvas } from '../utils/cropImage';
-import { parsearActa } from '../utils/parsearActa';
-import { analizarCelda, binarizarCelda, medianaLuma } from '../utils/analizarCelda';
-import { celdaNueva } from '../utils/celdas';
-import {
-  ELECCIONES,
-  type ActaElectoral, type BoundingBox, type CampoNumerico, type CeldaVoto, type Columnas, type VotoOrganizacion,
-} from '../types/acta';
+import { leerActa } from '../utils/parsearActa';
+import { leerNumeroCelda } from '../utils/digitos';
+import { leerLuma, percentil } from '../utils/analizarCelda';
+import { cajasEncabezado, detectarMarco, zonasPorDefecto } from '../utils/plantilla';
+import type { BoundingBox } from '../types/acta';
 
 const base = import.meta.env.BASE_URL;
 let workerPromise: Promise<Worker> | null = null;
-let silenciar = false; // mientras se leen celdas, el logger de Tesseract no pisa el progreso propio
 
-// Worker único reutilizable. Todo se sirve desde /public (sin CDN, sin red).
+// Tesseract (local) solo se usa para la CABECERA IMPRESA (mesa, electores hábiles, dpto/prov/distrito).
+// Los números manuscritos los lee el clasificador propio (digitos.ts), casillero por casillero.
 function obtenerWorker(): Promise<Worker> {
   if (workerPromise) return workerPromise;
   const p: Promise<Worker> = createWorker('spa', 1, {
@@ -23,79 +21,37 @@ function obtenerWorker(): Promise<Worker> {
     langPath: `${base}tessdata`,
     workerBlobURL: false,
     gzip: true,
-    logger: (m: { status: string; progress: number }) => {
-      const s = useActaStore.getState();
-      if (s.procesando && !silenciar) s.setProcesando(true, m.progress ?? 0, m.status);
-    },
   }).catch((e: unknown) => {
-    workerPromise = null; // permitir reintento
+    workerPromise = null;
     throw e;
   });
   workerPromise = p;
   return p;
 }
 
-const modoPagina = { tessedit_char_whitelist: '', tessedit_pageseg_mode: '3', preserve_interword_spaces: '1' };
-const modoDigitos = { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' };
-
-async function leerDigitosW(w: Worker, canvas: HTMLCanvasElement) {
-  const { data } = await w.recognize(canvas);
-  return { texto: data.text.replace(/\D/g, ''), confianza: (data.confidence ?? 0) / 100 };
-}
-
-// Una celda: 1) análisis de píxeles (negro / blanco / escrito)  2) si hay escritura, OCR de dígitos.
-async function leerCelda(
-  w: Worker, canvas: HTMLCanvasElement, box: BoundingBox, mediana: number, ciudadanos: number,
-): Promise<CeldaVoto> {
-  const a = analizarCelda(canvas, box, mediana);
-  const base: CeldaVoto = { ...celdaNueva(), estado: a.estado, tinta: a.tinta, oscuro: a.oscuro, confianza: a.confianza, bbox: box };
-  if (a.estado !== 'MANUSCRITO') return { ...base, valor: 0, valor_ocr: 0 };
-
-  const r = await leerDigitosW(w, binarizarCelda(canvas, box, mediana));
-  if (!r.texto) return { ...base, valor: null, valor_ocr: null, confianza: 0.2 }; // hay tinta pero no se leyó número
-  const valor = parseInt(r.texto.slice(0, 4), 10);
-  let conf = Math.min(0.9, r.confianza); // el OCR nunca llega a "seguro" con manuscritos
-  if (r.texto.length > 3) conf *= 0.5;
-  if (ciudadanos > 0 && valor > ciudadanos) conf = Math.min(conf, 0.35); // heurística: más votos que votantes
-  return { ...base, valor, valor_ocr: valor, confianza: conf };
-}
-
-async function leerCeldasActa(canvas: HTMLCanvasElement, acta: ActaElectoral, columnas: Columnas) {
-  const w = await obtenerWorker();
-  const mediana = medianaLuma(canvas);
-  const store = useActaStore.getState();
-  const total = (acta.organizaciones.length + acta.filas_totales.length) * 2;
-  let n = 0;
-  silenciar = true;
-  await w.setParameters(modoDigitos as any);
-  try {
-    const organizaciones: VotoOrganizacion[] = [];
-    for (const o of acta.organizaciones) {
-      const out = { ...o };
-      if (o.fila_y) {
-        for (const e of ELECCIONES) {
-          store.setProcesando(true, ++n / total, `Leyendo celdas ${n}/${total}…`);
-          const c = columnas[e];
-          out[e] = await leerCelda(w, canvas, { x: c.x0, y: o.fila_y.y0, w: c.x1 - c.x0, h: o.fila_y.y1 - o.fila_y.y0 }, mediana, acta.ciudadanos_votaron);
-        }
-      }
-      organizaciones.push(out);
-    }
-    // Blancos / nulos / impugnados: mismas columnas, filas inferiores.
-    const campos: Partial<Record<CampoNumerico, { valor: number; conf: number }>> = {};
-    for (const f of acta.filas_totales) {
-      for (const e of ELECCIONES) {
-        store.setProcesando(true, ++n / total, `Leyendo celdas ${n}/${total}…`);
-        const c = columnas[e];
-        const celda = await leerCelda(w, canvas, { x: c.x0, y: f.y0, w: c.x1 - c.x0, h: f.y1 - f.y0 }, mediana, acta.ciudadanos_votaron);
-        campos[`${f.clave}_${e}` as CampoNumerico] = { valor: celda.valor ?? 0, conf: celda.confianza };
-      }
-    }
-    return { organizaciones, campos };
-  } finally {
-    silenciar = false;
-    await w.setParameters(modoPagina as any);
+// Texto impreso → blanco y negro, ampliado ×2 y con margen: mejora mucho el OCR de cabeceras.
+function prepararTexto(canvas: HTMLCanvasElement, b: BoundingBox): HTMLCanvasElement {
+  const r = leerLuma(canvas, b.x + b.w * 0.03, b.y + b.h * 0.12, b.w * 0.94, b.h * 0.76);
+  const fondo = percentil(r.L, 70);
+  const bin = document.createElement('canvas');
+  bin.width = Math.max(1, r.w);
+  bin.height = Math.max(1, r.h);
+  const bctx = bin.getContext('2d')!;
+  const img = bctx.createImageData(bin.width, bin.height);
+  for (let i = 0; i < r.L.length; i++) {
+    const v = r.L[i] < 0.7 * fondo ? 0 : 255;
+    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = v;
+    img.data[4 * i + 3] = 255;
   }
+  bctx.putImageData(img, 0, 0);
+  const out = document.createElement('canvas');
+  out.width = bin.width * 2 + 60;
+  out.height = bin.height * 2 + 60;
+  const octx = out.getContext('2d')!;
+  octx.fillStyle = '#fff';
+  octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(bin, 30, 30, bin.width * 2, bin.height * 2);
+  return out;
 }
 
 export function useOCR() {
@@ -104,61 +60,61 @@ export function useOCR() {
   const ejecutarOCR = useCallback(async () => {
     const s = useActaStore.getState();
     const pagina = s.paginas[s.paginaActual];
-    if (!pagina || !s.archivo) return;
-    s.setProcesando(true, 0, 'Inicializando OCR local…');
+    if (!pagina || !s.archivo || !s.zonas) return;
+    const zonas = s.zonas;
+    s.setProcesando(true, 0.1, 'Leyendo casilleros de votos, firmas y totales…');
     try {
-      const w = await obtenerWorker();
-      await w.setParameters(modoPagina as any);
-      const { data } = await w.recognize(pagina.url);
-      s.setProcesando(true, 1, 'Ubicando filas, columnas y firmas…');
       const canvas = await cargarCanvas(pagina.url);
-      const acta = parsearActa(data, canvas, { hash: s.archivo.hash, nombre: s.archivo.nombre });
+      await new Promise((r) => setTimeout(r, 30)); // deja pintar el mensaje antes del cálculo
+      const acta = leerActa(canvas, zonas, s.nOrganizaciones, { hash: s.archivo.hash, nombre: s.archivo.nombre });
       useActaStore.getState().setActa(acta);
-      const l = await leerCeldasActa(canvas, acta, acta.columnas);
-      useActaStore.getState().aplicarLectura(l.organizaciones, acta.columnas, l.campos);
-      useActaStore.getState().setProcesando(
-        false, 1,
-        acta.columnas_confiables
-          ? `OCR completo: ${acta.organizaciones.length} filas leídas.`
-          : `${acta.organizaciones.length} filas leídas, pero NO se ubicaron las columnas: calibre las columnas y re-lea.`,
-      );
+
+      let aviso = '';
+      try {
+        useActaStore.getState().setProcesando(true, 0.5, 'Leyendo cabecera impresa (OCR local)…');
+        const w = await obtenerWorker();
+        const cajas = cajasEncabezado(zonas);
+        const leer = async (b: BoundingBox, digitos: boolean) => {
+          await w.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: digitos ? '0123456789' : '' } as any);
+          const { data } = await w.recognize(prepararTexto(canvas, b));
+          return data.text.trim();
+        };
+        const texto = (t: string) => t.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, ' ').trim();
+        const mesa = (await leer(cajas.mesa, true)).replace(/\D/g, '');
+        const electores = parseInt((await leer(cajas.electores, true)).replace(/\D/g, ''), 10) || 0;
+        useActaStore.getState().aplicarEncabezado({
+          mesa, electores_habiles: electores,
+          departamento: texto(await leer(cajas.departamento, false)),
+          provincia: texto(await leer(cajas.provincia, false)),
+          distrito: texto(await leer(cajas.distrito, false)),
+        });
+      } catch (e) {
+        aviso = ` (no se pudo leer la cabecera impresa: ${e instanceof Error ? e.message : String(e)}; complétela a mano)`;
+      }
+      const a = useActaStore.getState().acta;
+      useActaStore.getState().setProcesando(false, 1, `Lectura completa: ${a?.organizaciones.length ?? 0} organizaciones.${aviso}`);
     } catch (e) {
-      useActaStore.getState().setProcesando(false, 0, `Error de OCR: ${e instanceof Error ? e.message : String(e)}`);
+      useActaStore.getState().setProcesando(false, 0, `Error de lectura: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
-  // Re-lee todas las celdas con columnas calibradas a mano.
-  const releerCeldas = useCallback(async (columnas: Columnas) => {
+  // Recalcula las zonas automáticamente a partir del marco del formulario en la página actual.
+  const detectarZonas = useCallback(async () => {
     const s = useActaStore.getState();
     const pagina = s.paginas[s.paginaActual];
-    if (!pagina || !s.acta) return;
-    s.setProcesando(true, 0, 'Re-leyendo celdas…');
-    try {
-      const canvas = await cargarCanvas(pagina.url);
-      const l = await leerCeldasActa(canvas, s.acta, columnas);
-      useActaStore.getState().aplicarLectura(l.organizaciones, columnas, l.campos, true);
-      useActaStore.getState().setProcesando(false, 1, 'Celdas re-leídas con las columnas calibradas.');
-    } catch (e) {
-      useActaStore.getState().setProcesando(false, 0, `Error: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    if (!pagina) return;
+    const canvas = await cargarCanvas(pagina.url);
+    s.setZonas(zonasPorDefecto(detectarMarco(canvas)));
   }, []);
 
-  // Re-lectura de UNA celda (comparador), con la tinta aislada.
+  // Re-lectura de UNA celda (comparador) con su zona actual.
   const releerCelda = useCallback(async (box: BoundingBox) => {
     const s = useActaStore.getState();
     const pagina = s.paginas[s.paginaActual];
     if (!pagina) return { texto: '', confianza: 0 };
-    const w = await obtenerWorker();
-    const canvas = await cargarCanvas(pagina.url);
-    silenciar = true;
-    await w.setParameters(modoDigitos as any);
-    try {
-      return await leerDigitosW(w, binarizarCelda(canvas, box, medianaLuma(canvas)));
-    } finally {
-      silenciar = false;
-      await w.setParameters(modoPagina as any);
-    }
+    const r = leerNumeroCelda(await cargarCanvas(pagina.url), box);
+    return r ? { texto: r.texto, confianza: r.confianza } : { texto: '', confianza: 0 };
   }, []);
 
-  return { ejecutarOCR, releerCeldas, releerCelda, ocupado: procesando };
+  return { ejecutarOCR, detectarZonas, releerCelda, ocupado: procesando };
 }
